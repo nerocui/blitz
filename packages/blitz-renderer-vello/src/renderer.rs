@@ -1,5 +1,6 @@
 mod multicolor_rounded_rect;
 mod render;
+mod d2drender;
 
 use crate::renderer::render::generate_vello_scene;
 use crate::Color;
