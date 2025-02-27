@@ -188,7 +188,7 @@ impl D2dSceneGenerator<'_> {
 
         // Reset transform
         unsafe {
-            rt.SetTransform(&D2D_MATRIX_3X2_F {
+            rt.SetTransform(&D2D1_MATRIX_3X2_F {
                 m11: 1.0,
                 m12: 0.0,
                 m21: 0.0,
@@ -347,7 +347,7 @@ impl D2dSceneGenerator<'_> {
 
         // Set up transform for this element
         unsafe {
-            let transform = D2D_MATRIX_3X2_F {
+            let transform = D2D1_MATRIX_3X2_F {
                 m11: self.scale as f32,
                 m12: 0.0,
                 m21: 0.0,
@@ -440,7 +440,7 @@ impl D2dSceneGenerator<'_> {
         
         // Draw any child nodes
         if let NodeData::Element(ref data) = node.data {
-            for &child_id in &data.children {
+            for &child_id in &data.paint_children {
                 self.render_node(rt, child_id, box_position);
             }
         }
@@ -495,7 +495,7 @@ impl D2dSceneGenerator<'_> {
         };
         
         // Create frame with border radii
-        let frame = ElementFrame::new(&node);
+        let frame = ElementFrame::new(&node, layout, box_position);
         
         ElementCx {
             context: self,
@@ -525,7 +525,7 @@ impl D2dSceneGenerator<'_> {
         
         let properties = D2D1_BRUSH_PROPERTIES {
             opacity: 1.0,
-            transform: D2D_MATRIX_3X2_F::default(),
+            transform: D2D1_MATRIX_3X2_F::default(),
         };
         
         unsafe { rt.CreateSolidColorBrush(&color_f, Some(&properties)) }
@@ -549,113 +549,591 @@ struct ElementCx<'a> {
 }
 
 impl ElementCx<'_> {
-    fn with_maybe_clip(mut cb: impl FnMut(&ElementCx<'_>, &mut ID2D1DeviceContext)) {
-        // ...existing code...
-        unimplemented!("Clip using Direct2D layer or push/pop axis-aligned clip regions");
+    fn with_maybe_clip(&self, rt: &mut ID2D1DeviceContext, mut cb: impl FnMut(&ElementCx<'_>, &mut ID2D1DeviceContext)) {
+        // Create a layer for clipping
+        unsafe {
+            // Create a layer for clipping if needed
+            let current_clip_depth = CLIP_DEPTH.fetch_add(1, atomic::Ordering::SeqCst) + 1;
+            CLIP_DEPTH_USED.store(current_clip_depth.max(CLIP_DEPTH_USED.load(atomic::Ordering::SeqCst)), atomic::Ordering::SeqCst);
+            
+            if current_clip_depth < CLIP_LIMIT {
+                let clip_rect = D2D_RECT_F {
+                    left: 0.0,
+                    top: 0.0,
+                    right: self.frame.width as f32,
+                    bottom: self.frame.height as f32,
+                };
+                
+                let layer = rt.CreateLayer(None).unwrap();
+                let params = D2D1_LAYER_PARAMETERS {
+                    contentBounds: clip_rect,
+                    geometricMask: std::mem::ManuallyDrop::new(None),
+                    maskAntialiasMode: D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                    maskTransform: D2D1_MATRIX_3X2_F::default(),
+                    opacity: 1.0,
+                    opacityBrush: std::mem::ManuallyDrop::new(None),
+                    layerOptions: D2D1_LAYER_OPTIONS_NONE,
+                };
+                
+                rt.PushLayer(&params, &layer);
+                
+                // Execute the callback
+                cb(self, rt);
+                
+                // Pop the layer
+                rt.PopLayer();
+            } else {
+                // Just execute the callback without clipping
+                cb(self, rt);
+            }
+            
+            CLIP_DEPTH.fetch_sub(1, atomic::Ordering::SeqCst);
+        }
     }
 
     fn draw_inline_layout(&self, rt: &mut ID2D1DeviceContext, pos: Point2D<f64, f64>) {
-        // ...existing code...
-        unimplemented!("Similar logic, just use Direct2D for text/lines");
+        // Find text nodes in this element
+        if let NodeData::Element(element) = &self.node.data {
+            // Only render text if we have inline layout information
+            if let Some(inline_layout) = &element.inline_layout {
+                unsafe {
+                    // Create text format with DirectWrite (would require DirectWrite setup)
+                    // For now, just draw rectangles representing text blocks
+                    let text_brush = self.context.create_solid_color_brush(rt, Color::from_rgba8(0, 0, 0, 255)).unwrap();
+                    
+                    // For each line in the inline layout
+                    for line in inline_layout.lines.iter() {
+                        for item in line.items.iter() {
+                            if let PositionedLayoutItem::Text(text_item) = item {
+                                // Create a rectangle for each text item
+                                let text_rect = D2D_RECT_F {
+                                    left: text_item.x as f32,
+                                    top: text_item.y as f32,
+                                    right: (text_item.x + text_item.width) as f32,
+                                    bottom: (text_item.y + text_item.height) as f32,
+                                };
+                                
+                                // Draw text (simplified to a filled rectangle for now)
+                                rt.FillRectangle(&text_rect, &text_brush);
+                                
+                                // In a real implementation, we'd use DirectWrite for proper text rendering
+                                // rt.DrawText(...) with a properly configured IDWriteTextFormat
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn draw_text_input_text(&self, rt: &mut ID2D1DeviceContext, pos: Point2D<f64, f64>) {
-        // ...existing code...
-        unimplemented!("Use DirectWrite / Direct2D for text rendering");
+        if let Some(text_input) = self.text_input {
+            unsafe {
+                // Create a solid color brush for text
+                let text_brush = self.context.create_solid_color_brush(rt, Color::from_rgba8(0, 0, 0, 255)).unwrap();
+                
+                // Draw a rectangle representing the text input area
+                let input_rect = D2D_RECT_F {
+                    left: 0.0,
+                    top: 0.0,
+                    right: self.frame.width as f32,
+                    bottom: self.frame.height as f32,
+                };
+                
+                // In a real implementation, we'd use DirectWrite for text rendering
+                // For now, just draw a placeholder rectangle
+                rt.DrawRectangle(&input_rect, &text_brush, 1.0, None);
+                
+                // If there's placeholder text and no value, display it in gray
+                if text_input.value.is_empty() && !text_input.placeholder.is_empty() {
+                    // Draw placeholder (simplified)
+                    let placeholder_brush = self.context.create_solid_color_brush(rt, Color::from_rgba8(128, 128, 128, 255)).unwrap();
+                    rt.DrawRectangle(&D2D_RECT_F { left: 5.0, top: 5.0, right: input_rect.right - 5.0, bottom: input_rect.bottom - 5.0 }, 
+                                    &placeholder_brush, 1.0, None);
+                }
+            }
+        }
     }
 
     fn draw_marker(&self, rt: &mut ID2D1DeviceContext, pos: Point2D<f64, f64>) {
-        // ...existing code...
+        if let Some(list_item) = self.list_item {
+            if let Some(marker) = &list_item.marker {
+                match marker {
+                    Marker::Bullet => {
+                        // Draw a bullet marker
+                        unsafe {
+                            let brush = self.context.create_solid_color_brush(rt, Color::from_rgba8(0, 0, 0, 255)).unwrap();
+                            
+                            // Get marker position
+                            let marker_pos = match &list_item.layout {
+                                Some(layout) => match layout.position {
+                                    ListItemLayoutPosition::Inside => Point2D::new(10.0, 10.0), // Simplified
+                                    ListItemLayoutPosition::Outside => Point2D::new(0.0, 10.0), // Simplified
+                                },
+                                None => Point2D::new(0.0, 10.0) // Default position
+                            };
+                            
+                            // Draw bullet (circle)
+                            let ellipse = D2D1_ELLIPSE {
+                                point: D2D_POINT_2F {
+                                    x: marker_pos.x as f32,
+                                    y: marker_pos.y as f32,
+                                },
+                                radiusX: 3.0,
+                                radiusY: 3.0,
+                            };
+                            
+                            rt.FillEllipse(&ellipse, &brush);
+                        }
+                    },
+                    Marker::Decimal(n) => {
+                        // Draw a decimal number marker (simplified)
+                        unsafe {
+                            let brush = self.context.create_solid_color_brush(rt, Color::from_rgba8(0, 0, 0, 255)).unwrap();
+                            
+                            // In a real implementation, we'd render text with DirectWrite
+                            let rect = D2D_RECT_F {
+                                left: 0.0,
+                                top: 0.0,
+                                right: 20.0,
+                                bottom: 20.0,
+                            };
+                            
+                            rt.DrawRectangle(&rect, &brush, 1.0, None);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn draw_children(&self, rt: &mut ID2D1DeviceContext) {
-        // ...existing code...
+        // Iterate through child nodes and render them
+        for &child_id in &self.element.children {
+            self.context.render_node(rt, child_id, self.pos);
+        }
     }
 
-    fn stroke_text<'a>(pos: Point2D<f64, f64>) {
-        // ...existing code...
+    fn stroke_text<'a>(
+        pos: Point2D<f64, f64>,
+        // Other parameters would be needed for actual implementation
+    ) {
+        // This would require DirectWrite setup
+        // Would be implemented using IDWriteTextFormat and DrawText
     }
 
     #[cfg(feature = "svg")]
     fn draw_svg(&self, rt: &mut ID2D1DeviceContext) {
-        // ...existing code...
+        // SVG rendering in Direct2D would require complex implementation
+        // Basic approach would be to convert SVG paths to Direct2D geometries
+        if let Some(svg) = self.svg {
+            // This is a simplified placeholder
+            unsafe {
+                let brush = self.context.create_solid_color_brush(rt, Color::from_rgba8(0, 0, 0, 255)).unwrap();
+                
+                // Draw a rectangle as a placeholder for SVG
+                let rect = D2D_RECT_F {
+                    left: 0.0,
+                    top: 0.0,
+                    right: self.frame.width as f32,
+                    bottom: self.frame.height as f32,
+                };
+                
+                rt.DrawRectangle(&rect, &brush, 1.0, None);
+            }
+        }
     }
 
     #[cfg(feature = "svg")]
     fn draw_svg_bg_image(&self, rt: &mut ID2D1DeviceContext, idx: usize) {
-        // ...existing code...
+        // Similar to draw_svg, but for background images
+        // Simplified implementation
     }
 
     fn draw_image(&self, rt: &mut ID2D1DeviceContext) {
-        // ...existing code...
+        // Draw image if this node has one
+        if let NodeData::Element(element) = &self.node.data {
+            if let Some(image_data) = &element.data.as_any().downcast_ref::<ImageData>() {
+                if let Some(data) = &image_data.data {
+                    match data {
+                        RasterImageData::Raster(data) => {
+                            // Load image data into Direct2D bitmap
+                            unsafe {
+                                // This is simplified - in reality you'd need to create a bitmap from the image data
+                                let brush = self.context.create_solid_color_brush(rt, Color::from_rgba8(200, 200, 200, 255)).unwrap();
+                                
+                                // Draw rectangle as placeholder for image
+                                let rect = D2D_RECT_F {
+                                    left: 0.0,
+                                    top: 0.0,
+                                    right: self.frame.width as f32,
+                                    bottom: self.frame.height as f32,
+                                };
+                                
+                                rt.FillRectangle(&rect, &brush);
+                                
+                                // In a real implementation:
+                                // 1. Create a Direct2D bitmap from image data
+                                // 2. Draw the bitmap using DrawBitmap
+                            }
+                        },
+                        // Handle other image types
+                        _ => {}
+                    }
+                }
+            }
+        }
     }
 
     fn draw_raster_bg_image(&self, rt: &mut ID2D1DeviceContext, idx: usize) {
-        // ...existing code...
+        // Similar to draw_image, but for background images
+        // Implementation would follow the same pattern
     }
 
     fn stroke_devtools(&self, rt: &mut ID2D1DeviceContext) {
-        // ...existing code...
+        // Draw debugging overlays if devtools are enabled
+        if self.devtools.show_layout_boxes {
+            unsafe {
+                let brush = self.context.create_solid_color_brush(rt, Color::from_rgba8(255, 0, 0, 128)).unwrap();
+                
+                let rect = D2D_RECT_F {
+                    left: 0.0,
+                    top: 0.0,
+                    right: self.frame.width as f32,
+                    bottom: self.frame.height as f32,
+                };
+                
+                rt.DrawRectangle(&rect, &brush, 1.0, None);
+            }
+        }
     }
 
     fn draw_background(&self, rt: &mut ID2D1DeviceContext) {
-        // ...existing code...
+        let bg = self.style.get_background();
+        
+        // Handle solid background color
+        let color = bg.background_color;
+        if color != GenericColor::TRANSPARENT_BLACK {
+            let resolved_color = color.resolve_to_absolute(&self.style.clone_color());
+            unsafe {
+                let brush = self.context.create_solid_color_brush(rt, resolved_color.to_color_color()).unwrap();
+                
+                // Create rounded rectangle if we have border radius
+                if self.frame.has_border_radius() {
+                    // Create rounded rectangle geometry
+                    let factory: ID2D1Factory = rt.GetFactory().unwrap();
+                    let rounded_rect = D2D1_ROUNDED_RECT {
+                        rect: D2D_RECT_F {
+                            left: 0.0,
+                            top: 0.0,
+                            right: self.frame.width as f32,
+                            bottom: self.frame.height as f32,
+                        },
+                        radiusX: self.frame.top_left_radius as f32,
+                        radiusY: self.frame.top_left_radius as f32, // Using same radius for simplicity
+                    };
+                    
+                    let geometry = unsafe { factory.CreateRoundedRectangleGeometry(&rounded_rect).unwrap() };
+                    rt.FillGeometry(&geometry, &brush, None);
+                } else {
+                    // Simple rectangle for non-rounded corners
+                    let rect = D2D_RECT_F {
+                        left: 0.0,
+                        top: 0.0,
+                        right: self.frame.width as f32,
+                        bottom: self.frame.height as f32,
+                    };
+                    
+                    rt.FillRectangle(&rect, &brush);
+                }
+            }
+        }
+        
+        // Handle background images and gradients
+        for (idx, image) in bg.background_image.0.iter().enumerate() {
+            match image {
+                style::values::computed::image::Image::Gradient(gradient) => {
+                    self.draw_gradient_frame(rt, gradient);
+                },
+                _ => {
+                    // Handle other background image types
+                    // This is more complex and would require specific Direct2D implementations
+                }
+            }
+        }
     }
 
     fn draw_gradient_frame(&self, rt: &mut ID2D1DeviceContext, gradient: &StyloGradient) {
-        // ...existing code...
+        match gradient {
+            StyloGradient::Linear(linear) => {
+                // Create a linear gradient brush
+                unsafe {
+                    // We need gradient stops
+                    let mut stops = Vec::new();
+                    
+                    for (idx, stop) in linear.items.iter().enumerate() {
+                        let color = stop.color.resolve_to_absolute(&self.style.clone_color());
+                        let position = stop.position.map(|pos| pos as f32).unwrap_or(idx as f32 / (linear.items.len() - 1) as f32);
+                        
+                        let stop = D2D1_GRADIENT_STOP {
+                            position,
+                            color: D2D1_COLOR_F {
+                                r: color.r as f32 / 255.0,
+                                g: color.g as f32 / 255.0,
+                                b: color.b as f32 / 255.0,
+                                a: color.a as f32 / 255.0,
+                            },
+                        };
+                        
+                        stops.push(stop);
+                    }
+                    
+                    // Create gradient stops collection
+                    let factory: ID2D1Factory = rt.GetFactory().unwrap();
+                    let stops_collection = factory.CreateGradientStopCollection(
+                        &stops,
+                        D2D1_GAMMA_2_2,
+                        D2D1_EXTEND_MODE_CLAMP,
+                    ).unwrap();
+                    
+                    // Create linear gradient brush
+                    // This is simplified - we'd need to handle the gradient line direction properly
+                    let start_point = D2D_POINT_2F { x: 0.0, y: 0.0 };
+                    let end_point = D2D_POINT_2F { 
+                        x: self.frame.width as f32, 
+                        y: self.frame.height as f32 
+                    };
+                    
+                    let brush = rt.CreateLinearGradientBrush(
+                        &D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
+                            startPoint: start_point,
+                            endPoint: end_point,
+                        },
+                        None,
+                        &stops_collection,
+                    ).unwrap();
+                    
+                    // Draw the gradient
+                    let rect = D2D_RECT_F {
+                        left: 0.0,
+                        top: 0.0,
+                        right: self.frame.width as f32,
+                        bottom: self.frame.height as f32,
+                    };
+                    
+                    rt.FillRectangle(&rect, &brush);
+                }
+            },
+            StyloGradient::Radial(radial) => {
+                // Similar implementation for radial gradients
+                // Would use CreateRadialGradientBrush
+            },
+            _ => {
+                // Handle other gradient types
+            }
+        }
     }
 
     fn draw_linear_gradient(flags: GradientFlags) {
-        // ...existing code...
+        // Helper method for linear gradients
+        // Implementation would depend on the specific gradient parameters
     }
 
     #[inline]
-    fn resolve_color_stops<T>(item_resolver: impl Fn(CSSPixelLength, &T) -> Option<f32>) -> (f32, f32) {
-        // ...existing code...
+    fn resolve_color_stops<T>(
+        item_resolver: impl Fn(CSSPixelLength, &T) -> Option<f32>
+    ) -> (f32, f32) {
+        // Helper for gradient calculations
         (0.0, 1.0)
     }
 
     #[inline]
     fn resolve_length_color_stops(repeating: bool) -> (f32, f32) {
-        // ...existing code...
+        // Helper for gradient calculations
         (0.0, 1.0)
     }
 
     #[inline]
     fn resolve_angle_color_stops(repeating: bool) -> (f32, f32) {
-        // ...existing code...
+        // Helper for gradient calculations
         (0.0, 1.0)
     }
 
     fn draw_outset_box_shadow(&self, rt: &mut ID2D1DeviceContext) {
-        // ...existing code...
+        let shadow = self.style.get_effects().box_shadow;
+        
+        for shadow_item in shadow.0.iter() {
+            if shadow_item.inset {
+                continue; // Skip inset shadows here
+            }
+            
+            unsafe {
+                // Create shadow effect
+                let shadow_color = shadow_item.color.resolve_to_absolute(&self.style.clone_color());
+                let color_brush = self.context.create_solid_color_brush(rt, shadow_color.to_color_color()).unwrap();
+                
+                // Shadow parameters
+                let offset_x = shadow_item.offset_x.px() as f32;
+                let offset_y = shadow_item.offset_y.px() as f32;
+                let blur = shadow_item.blur.px() as f32;
+                
+                // Create shadow rectangle
+                let shadow_rect = D2D_RECT_F {
+                    left: offset_x - blur,
+                    top: offset_y - blur,
+                    right: self.frame.width as f32 + offset_x + blur,
+                    bottom: self.frame.height as f32 + offset_y + blur,
+                };
+                
+                // Draw shadow with alpha for blur effect
+                // This is a simplified approximation - proper shadow would need more complex effects
+                rt.FillRectangle(&shadow_rect, &color_brush);
+                
+                // In a more sophisticated implementation:
+                // 1. Create a bitmap of the element
+                // 2. Apply a gaussian blur effect
+                // 3. Draw the blurred bitmap offset by the shadow parameters
+            }
+        }
     }
 
     fn draw_inset_box_shadow(&self, rt: &mut ID2D1DeviceContext) {
-        // ...existing code...
+        let shadow = self.style.get_effects().box_shadow;
+        
+        for shadow_item in shadow.0.iter() {
+            if !shadow_item.inset {
+                continue; // Skip outset shadows here
+            }
+            
+            // Inset shadows are more complex and would require a sophisticated implementation
+            // using layer masks and effects
+        }
     }
 
     fn draw_solid_frame(&self, rt: &mut ID2D1DeviceContext) {
-        // ...existing code...
+        // Draw a solid frame for the element
+        unsafe {
+            let brush = self.context.create_solid_color_brush(rt, Color::from_rgba8(0, 0, 0, 255)).unwrap();
+            
+            let rect = D2D_RECT_F {
+                left: 0.0,
+                top: 0.0,
+                right: self.frame.width as f32,
+                bottom: self.frame.height as f32,
+            };
+            
+            rt.DrawRectangle(&rect, &brush, 1.0, None);
+        }
     }
 
     fn stroke_border(&self, rt: &mut ID2D1DeviceContext) {
-        // ...existing code...
+        // Stroke all four borders
+        self.stroke_border_edge(rt, Edge::Top);
+        self.stroke_border_edge(rt, Edge::Right);
+        self.stroke_border_edge(rt, Edge::Bottom);
+        self.stroke_border_edge(rt, Edge::Left);
     }
 
     fn stroke_border_edge(&self, rt: &mut ID2D1DeviceContext, edge: Edge) {
-        // ...existing code...
+        let border = self.style.get_border();
+        
+        // Get border properties for this edge
+        let (width, style, color) = match edge {
+            Edge::Top => (
+                border.border_top_width.px() as f32,
+                border.border_top_style,
+                border.border_top_color.resolve_to_absolute(&self.style.clone_color()),
+            ),
+            Edge::Right => (
+                border.border_right_width.px() as f32,
+                border.border_right_style,
+                border.border_right_color.resolve_to_absolute(&self.style.clone_color()),
+            ),
+            Edge::Bottom => (
+                border.border_bottom_width.px() as f32,
+                border.border_bottom_style,
+                border.border_bottom_color.resolve_to_absolute(&self.style.clone_color()),
+            ),
+            Edge::Left => (
+                border.border_left_width.px() as f32,
+                border.border_left_style,
+                border.border_left_color.resolve_to_absolute(&self.style.clone_color()),
+            ),
+        };
+        
+        // Skip if border is not visible
+        if width <= 0.0 || style == BorderStyle::None || style == BorderStyle::Hidden {
+            return;
+        }
+        
+        unsafe {
+            let brush = self.context.create_solid_color_brush(rt, color.to_color_color()).unwrap();
+            
+            // Define the border line
+            let (start, end) = match edge {
+                Edge::Top => (
+                    D2D_POINT_2F { x: 0.0, y: 0.0 },
+                    D2D_POINT_2F { x: self.frame.width as f32, y: 0.0 },
+                ),
+                Edge::Right => (
+                    D2D_POINT_2F { x: self.frame.width as f32, y: 0.0 },
+                    D2D_POINT_2F { x: self.frame.width as f32, y: self.frame.height as f32 },
+                ),
+                Edge::Bottom => (
+                    D2D_POINT_2F { x: 0.0, y: self.frame.height as f32 },
+                    D2D_POINT_2F { x: self.frame.width as f32, y: self.frame.height as f32 },
+                ),
+                Edge::Left => (
+                    D2D_POINT_2F { x: 0.0, y: 0.0 },
+                    D2D_POINT_2F { x: 0.0, y: self.frame.height as f32 },
+                ),
+            };
+            
+            // Draw the border line
+            rt.DrawLine(start, end, &brush, width, None);
+            
+            // For dashed/dotted borders, you'd need to create a custom stroke style
+            // See D2D1CreateStrokeStyle for complex border styles
+        }
     }
 
     fn stroke_outline(&self, rt: &mut ID2D1DeviceContext) {
-        // ...existing code...
+        let outline = self.style.get_outline();
+        let width = outline.outline_width.px() as f32;
+        
+        if width <= 0.0 || outline.outline_style == OutlineStyle::None {
+            return;
+        }
+        
+        let color = outline.outline_color.resolve_to_absolute(&self.style.clone_color());
+        
+        unsafe {
+            let brush = self.context.create_solid_color_brush(rt, color.to_color_color()).unwrap();
+            
+            // Draw outline rectangle
+            let rect = D2D_RECT_F {
+                left: -width,
+                top: -width,
+                right: self.frame.width as f32 + width,
+                bottom: self.frame.height as f32 + width,
+            };
+            
+            rt.DrawRectangle(&rect, &brush, width, None);
+            
+            // For dashed/dotted outlines, you'd need to create a custom stroke style
+            // Similar to borders
+        }
+    }
+
+    fn stroke_effects(&self, _rt: &mut ID2D1DeviceContext) {
+        // This would handle opacity, filters, etc.
+        // Direct2D implementation would depend on specific effects needed
     }
 }
 
 impl<'a> std::ops::Deref for ElementCx<'a> {
-    type Target = ElementCx<'a>;
+    type Target = D2dSceneGenerator<'a>;
     fn deref(&self) -> &Self::Target {
-        self
+        self.context
     }
 }
