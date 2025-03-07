@@ -464,6 +464,20 @@ impl ElementFrame {
         }
     }
 
+    /// Check if this element frame has any border radius (non-sharp corners)
+    pub fn has_border_radius(&self) -> bool {
+        // A frame has border radius if any corner has both its 
+        // width and height radius values greater than zero
+        (self.border_top_left_radius_width > 0.0 
+            && self.border_top_left_radius_height > 0.0)
+        || (self.border_top_right_radius_width > 0.0 
+            && self.border_top_right_radius_height > 0.0)
+        || (self.border_bottom_left_radius_width > 0.0 
+            && self.border_bottom_left_radius_height > 0.0)
+        || (self.border_bottom_right_radius_width > 0.0 
+            && self.border_bottom_right_radius_height > 0.0)
+    }
+
     #[rustfmt::skip]
     fn ellipse(&self, corner: Corner, side: ArcSide) -> Ellipse {
         use {Corner::*, ArcSide::*};
