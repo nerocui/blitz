@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="EMPTY_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/apps/readme/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/apps/wpt/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/counter/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/packages/blitz-dom/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/packages/blitz-html/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/packages/blitz-net/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/packages/blitz-renderer-vello/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/packages/blitz-shell/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/packages/blitz-traits/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/packages/blitz/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/packages/dioxus-native/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/packages/stylo_taffy/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" />
+      <excludeFolder url="file://$MODULE_DIR$/target" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>
