@@ -5,5 +5,6 @@
 //!  - `tracing`: Enables tracing support.
 mod renderer;
 mod util;
+pub mod d2drenderer;
 pub use renderer::*;
 pub use util::Color;
