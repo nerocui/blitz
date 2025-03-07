@@ -500,7 +500,7 @@ impl D2dSceneGenerator<'_> {
 
     fn element_cx<'w>(
         &'w self,
-        node: &'w Node, 
+        node: &'w Node,
         layout: Layout,
         box_position: Point2D<f64, f64>
     ) -> ElementCx<'w> {
@@ -510,59 +510,43 @@ impl D2dSceneGenerator<'_> {
             .as_ref()
             .map(|element_data| element_data.styles.primary().clone())
             .unwrap_or(
-                ComputedValues::initial_values_with_font_override(style::properties::style_structs::Font::initial_values()).to_arc(),
+                ComputedValues::initial_values_with_font_override(
+                    style::properties::style_structs::Font::initial_values(),
+                )
+                .to_arc(),
             );
 
         let scale = self.scale;
-
-        // Create frame using the same approach as in render.rs
         let frame = ElementFrame::new(&style, &layout, scale);
 
-        // Handle transform (similar to render.rs)
+        // Start with identity, then translate, then scale
         let mut transform = Transform3D::identity()
-            .then_scale(scale, scale, 1.0)
-            .then_translate(euclid::vec3(box_position.x, box_position.y, 0.0));
+            .then_translate(euclid::vec3(box_position.x, box_position.y, 0.0))
+            .then_scale(scale, scale, 1.0);
 
-        // Apply CSS transform property
-        let (t, has_3d) = &style
+        // Apply CSS transform
+        let (css_transform, has_3d) = style
             .get_box()
             .transform
             .to_transform_3d_matrix(None)
-            .unwrap_or((Transform3D::default(), false));
-        
+            .unwrap_or((Transform3D::identity(), false));
+
+        // Handle 2D transform with transform origin
         if !has_3d {
-            // Handle 2D transforms - equivalent to the Vello implementation
-            if !has_3d {
-                // Get transform origin from CSS
-                let transform_origin = &style.get_box().transform_origin;
-                
-                // Calculate the transform origin in pixels
-                let origin_x = transform_origin
-                    .horizontal
-                    .resolve(CSSPixelLength::new(frame.border_box.width() as f32))
-                    .px() as f64;
-                
-                let origin_y = transform_origin
-                    .vertical
-                    .resolve(CSSPixelLength::new(frame.border_box.height() as f32))
-                    .px() as f64;
-                
-                // Create a transform that:
-                // 1. Translates to the transform origin
-                // 2. Applies the CSS transform
-                // 3. Translates back from the origin
-                let origin_transform: Transform3D<f64, f64, f64> = Transform3D::translation(origin_x, origin_y, 0.0);
-                let inverse_origin: Transform3D<f64, f64, f64> = Transform3D::translation(-origin_x, -origin_y, 0.0);
-                
-                // Convert t from f32 to f64 to match other transforms
-                let t_f64: Transform3D<f64, UnknownUnit, UnknownUnit> = t.cast::<f64>();
-                
-                // Combine the transforms: inverse_origin * transform * origin
-                transform = inverse_origin
-                    .then(&t_f64)
-                    .then(&origin_transform)
-                    .then(&transform);
-            }
+            let transform_origin = &style.get_box().transform_origin;
+            let origin_x = transform_origin
+                .horizontal
+                .resolve(CSSPixelLength::new(frame.border_box.width() as f32))
+                .px() as f64;
+            let origin_y = transform_origin
+                .vertical
+                .resolve(CSSPixelLength::new(frame.border_box.height() as f32))
+                .px() as f64;
+
+            let origin = Transform3D::translation(origin_x, origin_y, 0.0);
+            let inv_origin = Transform3D::translation(-origin_x, -origin_y, 0.0);
+            let t_f64 = css_transform.to_untyped().cast::<f64>();
+            transform = transform.then(&origin).then(&t_f64).then(&inv_origin);
         }
 
         let element = node.element_data().unwrap();
