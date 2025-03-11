@@ -82,6 +82,39 @@ impl AbsoluteColorExt for AbsoluteColor {
     }
 }
 
+pub trait Matrix3x2Ext {
+    fn determinant(self) -> f64;
+    fn inverse(self) -> Self;
+    fn then_translate(self, trans: Point2D<f64, f64>) -> Self;
+}
+
+impl Matrix3x2Ext for Matrix3x2 {
+    fn determinant(self) -> f64 {
+        self.M11 as f64 * self.M22 as f64 - self.M12 as f64 * self.M21 as f64
+    }
+
+    fn inverse(self) -> Self {
+        let det = self.determinant() as f32;
+        if det == 0.0 {
+            panic!("Matrix is not invertible");
+        }
+        Matrix3x2 {
+            M11: self.M22 / det,
+            M12: -self.M12 / det,
+            M21: -self.M21 / det,
+            M22: self.M11 / det,
+            M31: (self.M21 * self.M32 - self.M22 * self.M31) / det,
+            M32: (self.M12 * self.M31 - self.M11 * self.M32) / det,
+        }
+    }
+
+    fn then_translate(mut self, trans: Point2D<f64, f64>) -> Self {
+        self.M31 += trans.x as f32;
+        self.M32 += trans.y as f32;
+        self
+    }
+}
+
 /// Draw the current tree to the current Direct2D surface
 pub fn generate_d2d_scene(
     rt: &mut ID2D1DeviceContext,
@@ -191,8 +224,7 @@ impl D2dSceneGenerator<'_> {
         };
 
         if let Some(bg_color) = background_color {
-            let color = bg_color.as_srgb_color();
-            let color_f = color.to_d2d_color();
+            let color_f = bg_color.to_d2d_color();
             unsafe {
                 let brush = self.create_solid_color_brush(rt, color_f);
                 if let Ok(brush) = brush {
@@ -389,6 +421,7 @@ impl D2dSceneGenerator<'_> {
             size,
             border,
             padding,
+            content_size,
             ..
         } = node.final_layout;
         let scaled_pb: taffy::Rect<f64> = (padding + border).map(f64::from);
@@ -397,13 +430,13 @@ impl D2dSceneGenerator<'_> {
             box_position.y + scaled_pb.top,
         );
         let content_box_size: euclid::Size2D<f64, f64> = euclid::Size2D::new(
-            (size.width - padding.left - padding.right - border.left - border.right) as f64,
-            (size.height - padding.top - padding.bottom - border.top - border.bottom) as f64,
+            (size.width as f64 - scaled_pb.left - scaled_pb.right) * self.scale,
+            (size.height as f64 - scaled_pb.top - scaled_pb.bottom) * self.scale,
         );
 
         // Don't render things that are out of view
         let scaled_y = box_position.y * self.scale;
-        let scaled_content_height = content_box_size.height.max(size.height as f64) * self.scale;
+        let scaled_content_height = content_size.height.max(size.height) as f64 * self.scale;
         if scaled_y > self.height as f64 || scaled_y + scaled_content_height < 0.0 {
             return;
         }
@@ -421,11 +454,31 @@ impl D2dSceneGenerator<'_> {
             rt.SetTransform(&transform);
         }
 
+        let origin = Point2D::new(0.0, 0.0);
+        let clip = euclid::Rect::new(origin, content_box_size);
+
+        // Optimise zero-area (/very small area) clips by not rendering at all
+        if should_clip && clip.area() < 0.01 {
+            return;
+        }
+
+        if should_clip {
+            CLIPS_WANTED.fetch_add(1, atomic::Ordering::SeqCst);
+        }
+
+        // Create an element context
+        let mut cx = self.element_cx(node, layout, box_position);
+
+        // Draw the element's components
+        cx.stroke_effects(rt);
+        cx.stroke_outline(rt);
+        cx.draw_outset_box_shadow(rt);
+        cx.draw_background(rt);
+
         // Set up clipping if needed
         // let mut layer_params = None;
         if should_clip && clips_available {
             CLIPS_USED.fetch_add(1, atomic::Ordering::SeqCst);
-            CLIPS_WANTED.fetch_add(1, atomic::Ordering::SeqCst);
 
             unsafe {
                 // Create clipping geometry
@@ -453,38 +506,39 @@ impl D2dSceneGenerator<'_> {
                 let layer = rt.CreateLayer(None).unwrap();
                 rt.PushLayer(&params, &layer);
             }
+
+            let depth = CLIP_DEPTH.fetch_add(1, atomic::Ordering::SeqCst) + 1;
+            CLIP_DEPTH_USED.fetch_max(depth, atomic::Ordering::SeqCst);
         }
 
-        // Create an element context
-        let cx = self.element_cx(node, layout, box_position);
-
-        // Draw the element's components
-        cx.stroke_effects(rt);
-        cx.stroke_outline(rt);
-        cx.draw_outset_box_shadow(rt);
-        cx.draw_background(rt);
         cx.draw_inset_box_shadow(rt);
         cx.stroke_border(rt);
-        // cx.stroke_devtools(rt);
+        cx.stroke_devtools(rt);
 
         // Draw content with correct scroll offset
         let content_position = Point2D::new(
-            content_position.x,
-            content_position.y - node.scroll_offset.y as f64,
+            content_position.x - node.scroll_offset.x,
+            content_position.y - node.scroll_offset.y,
         );
+        cx.pos = Point2D::new(
+            cx.pos.x - node.scroll_offset.x,
+            cx.pos.y - node.scroll_offset.y,
+        );
+        // unsafe {
+        //     // Update transform for scrolled content
+        //     let transform = Matrix3x2 {
+        //         M11: self.scale as f32,
+        //         M12: 0.0,
+        //         M21: 0.0,
+        //         M22: self.scale as f32,
+        //         M31: (content_position.x * self.scale) as f32,
+        //         M32: (content_position.y * self.scale) as f32,
+        //     };
+        //     rt.SetTransform(&transform);
 
-        unsafe {
-            // Update transform for scrolled content
-            let transform = Matrix3x2 {
-                M11: self.scale as f32,
-                M12: 0.0,
-                M21: 0.0,
-                M22: self.scale as f32,
-                M31: (content_position.x * self.scale) as f32,
-                M32: (content_position.y * self.scale) as f32,
-            };
-            rt.SetTransform(&transform);
-        }
+            cx.transform = cx.transform
+                .then_translate(Point2D::new(-node.scroll_offset.x as f64, -node.scroll_offset.y as f64));
+        // }
 
         cx.draw_image(rt);
         #[cfg(feature = "svg")]
@@ -502,6 +556,7 @@ impl D2dSceneGenerator<'_> {
             unsafe {
                 rt.PopLayer();
             }
+            CLIP_DEPTH.fetch_sub(1, atomic::Ordering::SeqCst);
         }
     }
 
@@ -529,7 +584,7 @@ impl D2dSceneGenerator<'_> {
         layout: Layout,
         box_position: Point2D<f64, f64>,
     ) -> ElementCx<'w> {
-        let style = node
+        let style: style::servo_arc::Arc<ComputedValues> = node
             .stylo_element_data
             .borrow()
             .as_ref()
@@ -545,9 +600,7 @@ impl D2dSceneGenerator<'_> {
         let frame = ElementFrame::new(&style, &layout, scale);
 
         // Start with identity, then translate, then scale
-        let mut transform = Transform3D::identity()
-            .then_translate(euclid::vec3(box_position.x, box_position.y, 0.0))
-            .then_scale(scale, scale, 1.0);
+        let mut transform = Matrix3x2::translation(box_position.x as f32 * scale as f32, box_position.y as f32 * scale as f32);
 
         // Apply CSS transform
         let (css_transform, has_3d) = style
@@ -558,6 +611,14 @@ impl D2dSceneGenerator<'_> {
 
         // Handle 2D transform with transform origin
         if !has_3d {
+            let mut d2d_transform = Matrix3x2 {
+                M11: css_transform.m11 as f32,
+                M12: css_transform.m12 as f32,
+                M21: css_transform.m21 as f32,
+                M22: css_transform.m22 as f32,
+                M31: css_transform.m41 as f32,
+                M32: css_transform.m42 as f32,
+            };
             let transform_origin = &style.get_box().transform_origin;
             let origin_x = transform_origin
                 .horizontal
@@ -568,10 +629,10 @@ impl D2dSceneGenerator<'_> {
                 .resolve(CSSPixelLength::new(frame.border_box.height() as f32))
                 .px() as f64;
 
-            let origin = Transform3D::translation(origin_x, origin_y, 0.0);
-            let inv_origin = Transform3D::translation(-origin_x, -origin_y, 0.0);
-            let t_f64 = css_transform.to_untyped().cast::<f64>();
-            transform = transform.then(&origin).then(&t_f64).then(&inv_origin);
+            let origin_translation = Matrix3x2::translation(origin_x as f32, origin_y as f32);
+
+            d2d_transform = origin_translation * d2d_transform * origin_translation.inverse();
+            transform = transform * d2d_transform;
         }
 
         let element = node.element_data().unwrap();
@@ -647,7 +708,7 @@ struct ElementCx<'a> {
     scale: f64,
     node: &'a Node,
     element: &'a ElementNodeData,
-    transform: Transform3D<f64, f64, f64>,
+    transform: Matrix3x2,
     #[cfg(feature = "svg")]
     svg: Option<&'a usvg::Tree>,
     text_input: Option<&'a TextInputData>,
