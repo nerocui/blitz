@@ -1,6 +1,8 @@
+use std::ptr::null_mut;
 use std::sync::atomic::{self, AtomicUsize};
 use std::sync::Arc;
 use vello::peniko;
+use windows::Win32::Graphics::DirectWrite::{DWriteCreateFactory, IDWriteFactory, IDWriteFactory5, IDWriteFontFace, IDWriteFontFile, IDWriteFontFileLoader, DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_FACE_TYPE_TRUETYPE, DWRITE_FONT_SIMULATIONS_NONE, DWRITE_GLYPH_OFFSET, DWRITE_GLYPH_RUN, DWRITE_MEASURING_MODE_NATURAL};
 use windows::{
     core::*, Win32::Graphics::Direct2D::Common::*, Win32::Graphics::Direct2D::*,
     Win32::Graphics::Dxgi::Common::*,
@@ -52,10 +54,10 @@ impl ToD2dColor for AlphaColor<Srgb> {
     fn to_d2d_color(&self) -> D2D1_COLOR_F {
         // Access the components array [r, g, b, a]
         D2D1_COLOR_F {
-            r: self.components[0] / 255.0, // Red
-            g: self.components[1] / 255.0, // Green
-            b: self.components[2] / 255.0, // Blue
-            a: self.components[3] / 255.0, // Alpha
+            r: self.components[0], // Red
+            g: self.components[1], // Green
+            b: self.components[2], // Blue
+            a: self.components[3], // Alpha
         }
     }
 }
@@ -86,6 +88,7 @@ pub trait Matrix3x2Ext {
     fn determinant(self) -> f64;
     fn inverse(self) -> Self;
     fn then_translate(self, trans: Point2D<f64, f64>) -> Self;
+    fn id_skew(skew_x: f32, skew_y: f32) -> Self;
 }
 
 impl Matrix3x2Ext for Matrix3x2 {
@@ -112,6 +115,17 @@ impl Matrix3x2Ext for Matrix3x2 {
         self.M31 += trans.x as f32;
         self.M32 += trans.y as f32;
         self
+    }
+
+    fn id_skew(skew_x: f32, skew_y: f32) -> Self {
+        Matrix3x2 {
+            M11: 1.0,
+            M12: skew_y,
+            M21: skew_x,
+            M22: 1.0,
+            M31: 0.0,
+            M32: 0.0,
+        }
     }
 }
 
@@ -746,11 +760,13 @@ impl ElementCx<'_> {
                 let depth = CLIP_DEPTH.fetch_add(1, atomic::Ordering::SeqCst) + 1;
                 CLIP_DEPTH_USED.fetch_max(depth, atomic::Ordering::SeqCst);
 
+                // not sure what to do with &self.frame.shadow_clip()
+
                 let params = D2D1_LAYER_PARAMETERS1 {
                     contentBounds: clip_rect,
                     geometricMask: std::mem::ManuallyDrop::new(None),
                     maskAntialiasMode: D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
-                    maskTransform: Matrix3x2::default(),
+                    maskTransform: self.transform,
                     opacity: 1.0,
                     opacityBrush: std::mem::ManuallyDrop::new(None),
                     layerOptions: D2D1_LAYER_OPTIONS1_NONE,
@@ -787,22 +803,15 @@ impl ElementCx<'_> {
         lines: impl Iterator<Item = Line<'a, TextBrush>>,
         pos: Point2D<f64, f64>,
     ) {
-        let transform = Matrix3x2 {
-            M11: self.scale as f32,
-            M12: 0.0,
-            M21: 0.0,
-            M22: self.scale as f32,
-            M31: (pos.x * self.scale) as f32,
-            M32: (pos.y * self.scale) as f32,
-        };
+        let transform = Matrix3x2::translation((pos.x * self.scale) as f32, (pos.y * self.scale) as f32);
 
         unsafe {
-            rt.SetTransform(&transform);
+            // rt.SetTransform(&transform);
 
             for line in lines {
                 for item in line.items() {
                     if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
-                        let x = glyph_run.offset();
+                        let mut x = glyph_run.offset();
                         let y = glyph_run.baseline();
 
                         let run = glyph_run.run();
@@ -810,10 +819,77 @@ impl ElementCx<'_> {
                         let font_size = run.font_size();
                         let metrics = run.metrics();
                         let style = glyph_run.style();
+                        let synthesis = run.synthesis();
+                        let glyph_xform = synthesis
+                            .skew()
+                            .map(|angle| Matrix3x2::id_skew(angle.to_radians().tan(), 0.0));
+
+                        // Create DirectWrite factory (should be cached)
+                        let dwrite_factory: IDWriteFactory5 = DWriteCreateFactory::<IDWriteFactory5>(DWRITE_FACTORY_TYPE_SHARED).unwrap();
+
+                        // Create a font collection from the font data
+                        let font_data = font.data.as_ref();
+                        let font_index = font.index;
+
+                        // Create in-memory font file loader
+                        let font_file_loader = dwrite_factory.CreateInMemoryFontFileLoader().unwrap();
+                        dwrite_factory.RegisterFontFileLoader(&font_file_loader).unwrap();
+
+                        // Create font file reference
+                        let font_file: IDWriteFontFile = font_file_loader.CreateInMemoryFontFileReference(
+                            &dwrite_factory,
+                            font_data.as_ptr() as *const _,
+                            font_data.len() as u32,
+                            None
+                        ).unwrap();
+
+                        // Create font face
+                        let font_face: IDWriteFontFace = dwrite_factory.CreateFontFace(
+                            DWRITE_FONT_FACE_TYPE_TRUETYPE,
+                            &[Some(font_file)],
+                            font_index as u32,
+                            DWRITE_FONT_SIMULATIONS_NONE,
+                        ).unwrap();
+
+                        // Collect glyph indices and positions
+                        let mut indices: Vec<u16> = Vec::new();
+                        let mut positions: Vec<DWRITE_GLYPH_OFFSET> = Vec::new();
+                        let mut advances: Vec<f32> = Vec::new();
+                        
+                        // Fill with data from Parley glyph run
+                        for glyph in glyph_run.glyphs() {
+                            indices.push(glyph.id);
+                            advances.push(glyph.advance);
+                            positions.push(DWRITE_GLYPH_OFFSET {
+                                advanceOffset: glyph.x,
+                                ascenderOffset: -glyph.y, // Note: Y direction is flipped
+                            });
+                        }
+                        
+                        // Create the DirectWrite glyph run structure
+                        let dwrite_glyph_run = DWRITE_GLYPH_RUN {
+                            fontFace: std::mem::ManuallyDrop::new(Some(font_face)),
+                            fontEmSize: font_size as f32,
+                            glyphCount: indices.len() as u32,
+                            glyphIndices: indices.as_ptr(),
+                            glyphAdvances: advances.as_ptr(),
+                            glyphOffsets: positions.as_ptr(),
+                            isSideways: false.into(),
+                            bidiLevel: 0,
+                        };
+                        
+                        // Draw the glyph run
+                        let baseline_origin = D2D_POINT_2F {
+                            x: x as f32,
+                            y: y as f32,
+                        };
 
                         // Get the brush color from the style
                         let text_color = match style.brush.brush {
-                            peniko::Brush::Solid(color_alpha) => color_alpha.to_d2d_color(),
+                            peniko::Brush::Solid(color_alpha) => {
+                                println!("Solid color: {:?}", color_alpha);
+                                color_alpha.to_d2d_color()
+                            },
                             // Handle other brush types if needed
                             _ => D2D1_COLOR_F {
                                 r: 0.0,
@@ -828,76 +904,106 @@ impl ElementCx<'_> {
                             .context
                             .create_solid_color_brush(rt, text_color)
                             .unwrap();
+                        
+                        rt.DrawGlyphRun(
+                            baseline_origin,
+                            &dwrite_glyph_run,
+                            None,
+                            &text_brush,
+                            DWRITE_MEASURING_MODE_NATURAL,
+                        );
 
-                        // Get text content from the glyph run
-                        // Get the glyphs from the run and render them
-                        // Since Direct2D doesn't have a direct equivalent to Vello's glyph rendering,
-                        // we need to use DirectWrite's glyph run API
+                        // // Get the brush color from the style
+                        // let text_color = match style.brush.brush {
+                        //     peniko::Brush::Solid(color_alpha) => {
+                        //         println!("Solid color: {:?}", color_alpha);
+                        //         color_alpha.to_d2d_color()
+                        //     },
+                        //     // Handle other brush types if needed
+                        //     _ => D2D1_COLOR_F {
+                        //         r: 0.0,
+                        //         g: 0.0,
+                        //         b: 0.0,
+                        //         a: 1.0,
+                        //     },
+                        // };
 
-                        // Create DirectWrite factory
-                        let dwrite_factory: windows::Win32::Graphics::DirectWrite::IDWriteFactory =
-                            windows::Win32::Graphics::DirectWrite::DWriteCreateFactory(
-                                windows::Win32::Graphics::DirectWrite::DWRITE_FACTORY_TYPE_SHARED,
-                            )
-                            .unwrap();
+                        // // Create a solid color brush for text
+                        // let text_brush = self
+                        //     .context
+                        //     .create_solid_color_brush(rt, text_color)
+                        //     .unwrap();
 
-                        // Create text format with font properties from the run
-                        // Create a text format with proper font settings
-                        let text_format = dwrite_factory
-                            .CreateTextFormat(
-                                windows::core::PCWSTR::from_raw(
-                                    windows::core::w!("Arial").as_ptr(),
-                                ),
-                                None,
-                                windows::Win32::Graphics::DirectWrite::DWRITE_FONT_WEIGHT_NORMAL,
-                                windows::Win32::Graphics::DirectWrite::DWRITE_FONT_STYLE_NORMAL,
-                                windows::Win32::Graphics::DirectWrite::DWRITE_FONT_STRETCH_NORMAL,
-                                font_size as f32,
-                                windows::core::PCWSTR::from_raw(
-                                    windows::core::w!("en-US").as_ptr(),
-                                ),
-                            )
-                            .unwrap();
+                        // // Get text content from the glyph run
+                        // // Get the glyphs from the run and render them
+                        // // Since Direct2D doesn't have a direct equivalent to Vello's glyph rendering,
+                        // // we need to use DirectWrite's glyph run API
 
-                        // Extract text content from glyphs
-                        let mut text_content = String::new();
-                        for glyph in glyph_run.glyphs() {
-                            // This is a simplification - ideally we'd map glyph IDs back to characters
-                            // For now, just use a placeholder character
-                            text_content.push('X');
-                        }
+                        // // Create DirectWrite factory
+                        // // TODO: Cache this
+                        // let dwrite_factory: windows::Win32::Graphics::DirectWrite::IDWriteFactory =
+                        //     windows::Win32::Graphics::DirectWrite::DWriteCreateFactory(
+                        //         windows::Win32::Graphics::DirectWrite::DWRITE_FACTORY_TYPE_SHARED,
+                        //     )
+                        //     .unwrap();
 
-                        // If we have text to render
-                        if !text_content.is_empty() {
-                            // Convert text to UTF-16 for DirectWrite
-                            let text_utf16: Vec<u16> = text_content.encode_utf16().collect();
+                        // // Create text format with font properties from the run
+                        // // Create a text format with proper font settings
+                        // let text_format = dwrite_factory
+                        //     .CreateTextFormat(
+                        //         windows::core::PCWSTR::from_raw(
+                        //             windows::core::w!("Arial").as_ptr(),
+                        //         ),
+                        //         None,
+                        //         windows::Win32::Graphics::DirectWrite::DWRITE_FONT_WEIGHT_NORMAL,
+                        //         windows::Win32::Graphics::DirectWrite::DWRITE_FONT_STYLE_NORMAL,
+                        //         windows::Win32::Graphics::DirectWrite::DWRITE_FONT_STRETCH_NORMAL,
+                        //         font_size as f32,
+                        //         windows::core::PCWSTR::from_raw(
+                        //             windows::core::w!("en-US").as_ptr(),
+                        //         ),
+                        //     )
+                        //     .unwrap();
 
-                            // Create a text layout for the content
-                            let text_layout = dwrite_factory
-                                .CreateTextLayout(
-                                    text_utf16.as_slice(),
-                                    &text_format,
-                                    glyph_run.advance() as f32, // max width
-                                    (metrics.ascent + metrics.descent) as f32, // height
-                                )
-                                .unwrap();
+                        // // Extract text content from glyphs
+                        // let mut text_utf16: Vec<u16> = Vec::new();
+                        // for glyph in glyph_run.glyphs() {
+                        //     // This is a simplification - ideally we'd map glyph IDs back to characters
+                        //     // For now, just use a placeholder character
+                        //     text_utf16.push(glyph.id);
+                        // }
 
-                            // Set alignment and other properties if needed
-                            text_layout.SetTextAlignment(
-                                windows::Win32::Graphics::DirectWrite::DWRITE_TEXT_ALIGNMENT_LEADING
-                            ).ok();
+                        // // If we have text to render
+                        // if !text_utf16.is_empty() {
+                        //     // Convert text to UTF-16 for DirectWrite
+                        //     // let text_utf16: Vec<u16> = text_content.encode_utf16().collect();
 
-                            // Draw the text layout at the correct position
-                            rt.DrawTextLayout(
-                                D2D_POINT_2F {
-                                    x: x as f32,
-                                    y: (y - metrics.ascent) as f32,
-                                },
-                                &text_layout,
-                                &text_brush,
-                                D2D1_DRAW_TEXT_OPTIONS_NONE,
-                            );
-                        }
+                        //     // Create a text layout for the content
+                        //     let text_layout = dwrite_factory
+                        //         .CreateTextLayout(
+                        //             text_utf16.as_slice(),
+                        //             &text_format,
+                        //             glyph_run.advance() as f32, // max width
+                        //             (metrics.ascent + metrics.descent) as f32, // height
+                        //         )
+                        //         .unwrap();
+
+                        //     // Set alignment and other properties if needed
+                        //     text_layout.SetTextAlignment(
+                        //         windows::Win32::Graphics::DirectWrite::DWRITE_TEXT_ALIGNMENT_LEADING
+                        //     ).ok();
+
+                        //     // Draw the text layout at the correct position
+                        //     rt.DrawTextLayout(
+                        //         D2D_POINT_2F {
+                        //             x: x as f32,
+                        //             y: (y - metrics.ascent) as f32,
+                        //         },
+                        //         &text_layout,
+                        //         &text_brush,
+                        //         D2D1_DRAW_TEXT_OPTIONS_NONE,
+                        //     );
+                        // }
                     
 
                         // Draw decorations (underline, strikethrough) if present
