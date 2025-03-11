@@ -887,7 +887,6 @@ impl ElementCx<'_> {
                         // Get the brush color from the style
                         let text_color = match style.brush.brush {
                             peniko::Brush::Solid(color_alpha) => {
-                                println!("Solid color: {:?}", color_alpha);
                                 color_alpha.to_d2d_color()
                             },
                             // Handle other brush types if needed
