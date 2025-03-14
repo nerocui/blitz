@@ -1,5 +1,6 @@
 use std::sync::atomic::{self, AtomicUsize};
 use std::sync::Arc;
+use vello::kurbo::{BezPath, PathEl};
 use vello::peniko;
 use windows::Win32::Graphics::DirectWrite::{DWriteCreateFactory, IDWriteFactory5, IDWriteFontFace, IDWriteFontFile, DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_FACE_TYPE_TRUETYPE, DWRITE_FONT_SIMULATIONS_NONE, DWRITE_GLYPH_OFFSET, DWRITE_GLYPH_RUN, DWRITE_MEASURING_MODE_NATURAL};
 use windows::{
@@ -2172,6 +2173,48 @@ impl ElementCx<'_> {
         }
     }
 
+    fn create_d2d_path_from_bezpath(&self, factory: &ID2D1Factory, path: &BezPath) -> Option<ID2D1PathGeometry> {
+        unsafe {
+            let path_geometry = factory.CreatePathGeometry().ok()?;
+            let sink = path_geometry.Open().ok()?;
+        
+            for el in path.elements() {
+                match el {
+                    PathEl::MoveTo(p) => {
+                        sink.BeginFigure(
+                            D2D_POINT_2F { x: p.x as f32, y: p.y as f32 },
+                            D2D1_FIGURE_BEGIN_FILLED,
+                        );
+                    }
+                    PathEl::LineTo(p) => {
+                        sink.AddLine(D2D_POINT_2F { x: p.x as f32, y: p.y as f32 });
+                    }
+                    PathEl::QuadTo(p1, p2) => {
+                        sink.AddQuadraticBezier(&windows::Win32::Graphics::Direct2D::D2D1_QUADRATIC_BEZIER_SEGMENT {
+                            point1: D2D_POINT_2F { x: p1.x as f32, y: p1.y as f32 },
+                            point2: D2D_POINT_2F { x: p2.x as f32, y: p2.y as f32 },
+                        });
+                    }
+                    PathEl::CurveTo(p1, p2, p3) => {
+                        sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                            point1: D2D_POINT_2F { x: p1.x as f32, y: p1.y as f32 },
+                            point2: D2D_POINT_2F { x: p2.x as f32, y: p2.y as f32 },
+                            point3: D2D_POINT_2F { x: p3.x as f32, y: p3.y as f32 },
+                        });
+                    }
+                    PathEl::ClosePath => {
+                        sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+                    }
+                }
+            }
+        
+            sink.EndFigure(D2D1_FIGURE_END_OPEN); // Ensures final figure is closed out if not explicitly closed
+            sink.Close().ok()?;
+            
+            Some(path_geometry)
+        }
+    }
+
     fn stroke_border(&self, rt: &mut ID2D1DeviceContext) {
         // Stroke all four borders
         self.stroke_border_edge(rt, Edge::Top);
@@ -2245,55 +2288,16 @@ impl ElementCx<'_> {
                 .create_solid_color_brush(rt, color.to_d2d_color())
                 .unwrap();
 
-            // Create path geometry from the vello path
-            let factory: ID2D1Factory = rt.GetFactory().unwrap();
-            let path_geometry = factory.CreatePathGeometry().unwrap();
-            let sink = path_geometry.Open().unwrap();
-
-            // Convert vello path to Direct2D path
-            // This would normally iterate through the vello path segments
-            // For simplicity, we'll create a rectangle border for each edge
-            match edge {
-                Edge::Top => {
-                    let rect = D2D_RECT_F {
-                        left: 0.0,
-                        top: 0.0,
-                        right: self.frame.border_box.width() as f32,
-                        bottom: width.0 as f32,
-                    };
-                    rt.FillRectangle(&rect, &brush);
-                }
-                Edge::Right => {
-                    let rect = D2D_RECT_F {
-                        left: self.frame.border_box.width() as f32 - width.0 as f32,
-                        top: 0.0,
-                        right: self.frame.border_box.width() as f32,
-                        bottom: self.frame.border_box.height() as f32,
-                    };
-                    rt.FillRectangle(&rect, &brush);
-                }
-                Edge::Bottom => {
-                    let rect = D2D_RECT_F {
-                        left: 0.0,
-                        top: self.frame.border_box.height() as f32 - width.0 as f32,
-                        right: self.frame.border_box.width() as f32,
-                        bottom: self.frame.border_box.height() as f32,
-                    };
-                    rt.FillRectangle(&rect, &brush);
-                }
-                Edge::Left => {
-                    let rect = D2D_RECT_F {
-                        left: 0.0,
-                        top: 0.0,
-                        right: width.0 as f32,
-                        bottom: self.frame.border_box.height() as f32,
-                    };
-                    rt.FillRectangle(&rect, &brush);
-                }
-            }
-
-            // For more complex border styles like dashed, dotted, etc.
-            // we would create a custom stroke style using factory.CreateStrokeStyle()
+            let factory = rt.GetFactory().unwrap();
+            let path_geometry = self.create_d2d_path_from_bezpath(&factory, &path).unwrap();
+            // Or draw the geometry outline (stroke)
+            // The third parameter is the stroke width, the fourth is an optional stroke style
+            rt.DrawGeometry(
+                &path_geometry,
+                &brush,
+                width.0 as f32, // stroke width
+                None,
+            );
         }
     }
 
