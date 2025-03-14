@@ -19,8 +19,7 @@ use style::{
 
 use crate::{
     node::{
-        ListItemLayout, ListItemLayoutPosition, Marker, NodeKind, NodeSpecificData, TextBrush,
-        TextInputData, TextLayout,
+        ImageData, ListItemLayout, ListItemLayoutPosition, Marker, NodeKind, NodeSpecificData, TextBrush, TextInputData, TextLayout
     },
     stylo_to_parley, BaseDocument, ElementNodeData, Node, NodeData,
 };

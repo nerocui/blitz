@@ -567,7 +567,7 @@ impl RasterImageData {
 pub enum ImageData {
     Raster(RasterImageData),
     #[cfg(feature = "svg")]
-    Svg(usvg::Tree),
+    Svg(Box<usvg::Tree>),
     SvgD2D(String),
     None,
 }
