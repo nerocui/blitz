@@ -2261,10 +2261,10 @@ impl ElementCx<'_> {
 
         // Check if we need to draw the border at all
         let width = match edge {
-            Edge::Top => border.border_top_width,
-            Edge::Right => border.border_right_width,
-            Edge::Bottom => border.border_bottom_width,
-            Edge::Left => border.border_left_width,
+            Edge::Top => self.frame.border_top_width,
+            Edge::Right => self.frame.border_right_width,
+            Edge::Bottom => self.frame.border_bottom_width,
+            Edge::Left => self.frame.border_left_width,
         };
 
         let style_type = match edge {
@@ -2274,7 +2274,7 @@ impl ElementCx<'_> {
             Edge::Left => border.border_left_style,
         };
 
-        if width.0 <= 0
+        if width <= 0.0
             || style_type == style::values::computed::BorderStyle::None
             || style_type == style::values::computed::BorderStyle::Hidden
         {
@@ -2295,7 +2295,7 @@ impl ElementCx<'_> {
             rt.DrawGeometry(
                 &path_geometry,
                 &brush,
-                width.0 as f32, // stroke width
+                width as f32, // stroke width
                 None,
             );
         }
