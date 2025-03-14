@@ -247,6 +247,15 @@ impl LayoutPartialTree for BaseDocument {
                                         height: size.height(),
                                     }
                                 }
+                                #[cfg(feature = "svg")]
+                                ImageData::SvgD2D(svg) => {
+                                    let tree = crate::util::parse_svg(svg.clone().as_bytes()).unwrap();
+                                    let size = tree.size();
+                                    taffy::Size {
+                                        width: size.width(),
+                                        height: size.height(),
+                                    }
+                                }
                                 ImageData::None => taffy::Size::ZERO,
                             },
                             NodeSpecificData::None => taffy::Size::ZERO,

@@ -82,7 +82,7 @@ impl BlitzD2DRenderer {
     fn create_render_target(factory: &ID2D1Factory1, device: &ID3D11Device) -> Result<ID2D1DeviceContext> {
         unsafe {
             let d2device = factory.CreateDevice(&device.cast::<IDXGIDevice>()?)?;
-            let target = d2device.CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE)?;
+            let target:ID2D1DeviceContext  = d2device.CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE)?;
             target.SetUnitMode(D2D1_UNIT_MODE_DIPS);
             Ok(target)
         }

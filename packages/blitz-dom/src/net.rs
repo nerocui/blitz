@@ -28,6 +28,7 @@ pub enum Resource {
     Image(usize, ImageType, Arc<DynamicImage>),
     #[cfg(feature = "svg")]
     Svg(usize, ImageType, Box<usvg::Tree>),
+    SvgD2D(usize, ImageType, String),
     Css(usize, DocumentStyleSheet),
     Font(Bytes),
 }
@@ -282,12 +283,15 @@ impl NetHandler for ImageHandler {
 
         #[cfg(feature = "svg")]
         {
-            use crate::util::parse_svg;
+            // use crate::util::parse_svg;
 
-            // Try parse SVG
-            const DUMMY_SVG : &[u8] = r#"<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>"#.as_bytes();
-            let tree = parse_svg(&bytes).unwrap_or(parse_svg(DUMMY_SVG).unwrap());
-            callback.call(doc_id, Resource::Svg(self.0, self.1, Box::new(tree)));
+            // // Try parse SVG
+            // const DUMMY_SVG : &[u8] = r#"<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>"#.as_bytes();
+            // let tree = parse_svg(&bytes).unwrap_or(parse_svg(DUMMY_SVG).unwrap());
+            // callback.call(doc_id, Resource::Svg(self.0, self.1, Box::new(tree)));
+
+            let svg_str = std::str::from_utf8(&bytes).expect("Invalid UTF8");
+            callback.call(doc_id, Resource::SvgD2D(self.0, self.1, svg_str.to_string()));
         }
     }
 }

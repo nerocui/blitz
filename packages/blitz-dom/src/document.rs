@@ -625,6 +625,29 @@ impl BaseDocument {
                     }
                 }
             }
+            #[cfg(feature = "svg")]
+            Resource::SvgD2D(node_id, kind, svg_str) => {
+                let node = self.get_node_mut(node_id).unwrap();
+
+                match kind {
+                    ImageType::Image => {
+                        node.element_data_mut().unwrap().node_specific_data =
+                            NodeSpecificData::Image(Box::new(ImageData::SvgD2D(svg_str)));
+
+                        // Clear layout cache
+                        node.cache.clear();
+                    }
+                    ImageType::Background(idx) => {
+                        if let Some(Some(bg_image)) = node
+                            .element_data_mut()
+                            .and_then(|el| el.background_images.get_mut(idx))
+                        {
+                            bg_image.status = Status::Ok;
+                            bg_image.image = ImageData::SvgD2D(svg_str);
+                        }
+                    }
+                }
+            }
             Resource::Font(bytes) => {
                 self.font_ctx.collection.register_fonts(bytes.to_vec());
             }

@@ -1,13 +1,11 @@
-use std::ptr::null_mut;
 use std::sync::atomic::{self, AtomicUsize};
 use std::sync::Arc;
 use vello::peniko;
-use windows::Win32::Graphics::DirectWrite::{DWriteCreateFactory, IDWriteFactory, IDWriteFactory5, IDWriteFontFace, IDWriteFontFile, IDWriteFontFileLoader, DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_FACE_TYPE_TRUETYPE, DWRITE_FONT_SIMULATIONS_NONE, DWRITE_GLYPH_OFFSET, DWRITE_GLYPH_RUN, DWRITE_MEASURING_MODE_NATURAL};
+use windows::Win32::Graphics::DirectWrite::{DWriteCreateFactory, IDWriteFactory5, IDWriteFontFace, IDWriteFontFile, DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_FACE_TYPE_TRUETYPE, DWRITE_FONT_SIMULATIONS_NONE, DWRITE_GLYPH_OFFSET, DWRITE_GLYPH_RUN, DWRITE_MEASURING_MODE_NATURAL};
 use windows::{
     core::*, Win32::Graphics::Direct2D::Common::*, Win32::Graphics::Direct2D::*,
     Win32::Graphics::Dxgi::Common::*,
 };
-
 use super::multicolor_rounded_rect::{Edge, ElementFrame};
 use crate::util::{Color, ToColorColor};
 use blitz_dom::node::{
@@ -34,9 +32,7 @@ use style::{dom::TElement, properties::ComputedValues};
 use style::properties::style_structs::Outline;
 use taffy::Layout;
 use windows_numerics::{self, Matrix3x2};
-
-#[cfg(feature = "svg")]
-use vello_svg::usvg;
+use windows::Win32::UI::Shell::SHCreateMemStream;
 
 const CLIP_LIMIT: usize = 1024;
 static CLIPS_USED: AtomicUsize = AtomicUsize::new(0);
@@ -661,7 +657,7 @@ impl D2dSceneGenerator<'_> {
             element,
             transform,
             #[cfg(feature = "svg")]
-            svg: element.svg_data(),
+            svg: element.svg_data_d2d(),
             text_input: element.text_input_data(),
             list_item: element.list_item_data.as_deref(),
             devtools: &self.devtools,
@@ -724,7 +720,7 @@ struct ElementCx<'a> {
     element: &'a ElementNodeData,
     transform: Matrix3x2,
     #[cfg(feature = "svg")]
-    svg: Option<&'a usvg::Tree>,
+    svg: Option<&'a String>,
     text_input: Option<&'a TextInputData>,
     list_item: Option<&'a ListItemLayout>,
     devtools: &'a Devtools,
@@ -1076,23 +1072,39 @@ impl ElementCx<'_> {
     fn draw_svg(&self, rt: &mut ID2D1DeviceContext) {
         // SVG rendering in Direct2D would require complex implementation
         // Basic approach would be to convert SVG paths to Direct2D geometries
-        if let Some(svg) = self.svg {
-            // This is a simplified placeholder
+        if let Some(svg_string) = self.svg {
             unsafe {
-                let brush = self
-                    .context
-                    .create_solid_color_brush(rt, Color::from_rgba8(0, 0, 0, 255).to_d2d_color())
-                    .unwrap();
+                let svg_bytes = svg_string.as_bytes();
+                // Create an SVG document
+                let device_context5 = rt.cast::<ID2D1DeviceContext5>().unwrap();
 
-                // Draw a rectangle as a placeholder for SVG
-                let rect = D2D_RECT_F {
-                    left: 0.0,
-                    top: 0.0,
-                    right: self.frame.border_box.width() as f32,
-                    bottom: self.frame.border_box.height() as f32,
+                let svg_document = match SHCreateMemStream(Some(svg_bytes)) {
+                    None => device_context5.CreateSvgDocument(
+                        None,
+                        D2D_SIZE_F {
+                            width: self.frame.content_box.width() as f32, 
+                            height: self.frame.content_box.height() as f32
+                        },
+                    ).unwrap(),
+                    Some(svg_stream) => device_context5.CreateSvgDocument(
+                        &svg_stream,
+                        D2D_SIZE_F {
+                            width: self.frame.content_box.width() as f32, 
+                            height: self.frame.content_box.height() as f32
+                        }
+                    ).unwrap()
                 };
 
-                rt.DrawRectangle(&rect, &brush, 1.0, None);
+                // Set viewbox to fit the content area
+                let viewbox_size = D2D_SIZE_F {
+                    width: self.frame.content_box.width() as f32,
+                    height: self.frame.content_box.height() as f32,
+                };
+                let res = svg_document.SetViewportSize(viewbox_size);
+                 if res.is_ok() {
+                    // Draw the SVG document
+                    device_context5.DrawSvgDocument(&svg_document);
+                }
             }
         }
     }

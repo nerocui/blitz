@@ -92,20 +92,28 @@ pub(crate) fn collect_layout_children(
                     outer_html.replace("<svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"");
             }
 
-            match crate::util::parse_svg(outer_html.as_bytes()) {
-                Ok(svg) => {
-                    doc.get_node_mut(container_node_id)
+            doc.get_node_mut(container_node_id)
                         .unwrap()
                         .element_data_mut()
                         .unwrap()
-                        .node_specific_data = NodeSpecificData::Image(Box::new(svg.into()));
-                }
-                Err(err) => {
-                    println!("{} SVG parse failed", container_node_id);
-                    println!("{}", outer_html);
-                    dbg!(err);
-                }
-            };
+                        .node_specific_data =
+                        NodeSpecificData::Image(Box::new(ImageData::SvgD2D(outer_html)));
+
+            // match crate::util::parse_svg(outer_html.as_bytes()) {
+            //     Ok(svg) => {
+            //         doc.get_node_mut(container_node_id)
+            //             .unwrap()
+            //             .element_data_mut()
+            //             .unwrap()
+            //             .node_specific_data =
+            //             NodeSpecificData::Image(Box::new(ImageData::Svg(svg)));
+            //     }
+            //     Err(err) => {
+            //         println!("{} SVG parse failed", container_node_id);
+            //         println!("{}", outer_html);
+            //         dbg!(err);
+            //     }
+            // };
             return;
         }
 

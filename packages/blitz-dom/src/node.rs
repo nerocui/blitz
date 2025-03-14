@@ -450,6 +450,14 @@ impl ElementNodeData {
     }
 
     #[cfg(feature = "svg")]
+    pub fn svg_data_d2d(&self) -> Option<&String> {
+        match self.image_data()? {
+            ImageData::SvgD2D(data) => Some(data),
+            _ => None,
+        }
+    }
+
+    #[cfg(feature = "svg")]
     pub fn svg_data_mut(&mut self) -> Option<&mut usvg::Tree> {
         match self.image_data_mut()? {
             ImageData::Svg(data) => Some(data),
@@ -559,7 +567,8 @@ impl RasterImageData {
 pub enum ImageData {
     Raster(RasterImageData),
     #[cfg(feature = "svg")]
-    Svg(Box<usvg::Tree>),
+    Svg(usvg::Tree),
+    SvgD2D(String),
     None,
 }
 impl From<Arc<DynamicImage>> for ImageData {
@@ -659,6 +668,7 @@ impl std::fmt::Debug for NodeSpecificData {
                 ImageData::Raster(_) => f.write_str("NodeSpecificData::Image(Raster)"),
                 #[cfg(feature = "svg")]
                 ImageData::Svg(_) => f.write_str("NodeSpecificData::Image(Svg)"),
+                ImageData::SvgD2D(_) => f.write_str("NodeSpecificData::Image(Svg)"),
                 ImageData::None => f.write_str("NodeSpecificData::Image(None)"),
             },
             NodeSpecificData::TableRoot(_) => f.write_str("NodeSpecificData::TableRoot"),
