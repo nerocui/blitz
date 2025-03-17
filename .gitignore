@@ -8,3 +8,9 @@ experiments
 /out
 /apps/wpt/output
 /sites
+.vs
+bin
+obj
+target
+Generated Files
+*.dll

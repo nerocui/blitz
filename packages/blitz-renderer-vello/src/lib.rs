@@ -3,7 +3,7 @@
 //! ## Feature flags
 //!  - `default`: Enables the features listed below.
 //!  - `tracing`: Enables tracing support.
-mod renderer;
+pub mod renderer;
 mod util;
 pub mod d2drenderer;
 pub use renderer::*;

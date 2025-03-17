@@ -1,0 +1,8 @@
+namespace BlitzWinRT
+{
+    runtimeclass D2DRenderer
+    {
+        D2DRenderer(UInt64 d2dDeviceContext);
+        void Render(String markdown);
+    }
+}

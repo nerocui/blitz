@@ -1,0 +1,27 @@
+[package]
+name = "blitz-winrt"
+version = "0.1.0"
+license = "MIT OR Apache-2.0 OR MPL-2.0"
+description = "Blitz WinRT"
+keywords = ["blitz", "winrt"]
+categories = ["gui"]
+edition = "2021"
+repository = ""
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+blitz-dom = { path = "../blitz-dom" }
+blitz-net = { path = "../blitz-net" }
+blitz-traits = { path = "../blitz-traits" }
+blitz-html = { path = "../blitz-html" }
+blitz-renderer-vello = { path = "../blitz-renderer-vello" }
+comrak = { version = "0.36", default-features = false }
+windows.workspace = true
+windows-core.workspace = true
+windows-targets.workspace = true
+
+[build-dependencies]
+windows-bindgen.workspace=true
+windows-metadata.workspace=true
