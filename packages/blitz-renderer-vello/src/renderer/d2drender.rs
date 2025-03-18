@@ -204,7 +204,6 @@ impl D2dSceneGenerator<'_> {
         let root_id = root_element.id;
         let bg_width = (self.width as f32).max(root_element.final_layout.size.width);
         let bg_height = (self.height as f32).max(root_element.final_layout.size.height);
-
         // Draw background color if defined
         // This is what's breaking...
         let mut background_color: Option<AbsoluteColor> = None;
@@ -286,24 +285,6 @@ impl D2dSceneGenerator<'_> {
             }
         }
 
-        if let Some(bg_color) = background_color {
-            let color_f = bg_color.to_d2d_color();
-            unsafe {
-                let brush = self.create_solid_color_brush(rt, color_f);
-                if let Ok(brush) = brush {
-                    rt.FillRectangle(
-                        &D2D_RECT_F {
-                            left: 0.0,
-                            top: 0.0,
-                            right: bg_width,
-                            bottom: bg_height,
-                        },
-                        &brush,
-                    );
-                }
-            }
-        }
-
         // Render the root element at position (-viewport_scroll.x, -viewport_scroll.y)
         self.render_element(
             rt,
@@ -328,6 +309,39 @@ impl D2dSceneGenerator<'_> {
                 M31: 0.0,
                 M32: 0.0,
             });
+        }
+    }
+
+    fn pain_red_shit(&self, rt: &mut ID2D1DeviceContext) {
+        unsafe {
+            rt.Clear(Some(&D2D1_COLOR_F {
+                r: 1.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            }));
+        }
+    }
+
+    fn pain_green_shit(&self, rt: &mut ID2D1DeviceContext) {
+        unsafe {
+            rt.Clear(Some(&D2D1_COLOR_F {
+                r: 0.0,
+                g: 1.0,
+                b: 0.0,
+                a: 0.0,
+            }));
+        }
+    }
+
+    fn pain_blue_shit(&self, rt: &mut ID2D1DeviceContext) {
+        unsafe {
+            rt.Clear(Some(&D2D1_COLOR_F {
+                r: 0.0,
+                g: 0.0,
+                b: 1.0,
+                a: 0.0,
+            }));
         }
     }
 
@@ -446,16 +460,19 @@ impl D2dSceneGenerator<'_> {
 
         // Early return if the element is hidden
         if matches!(node.style.display, taffy::Display::None) {
+            // self.pain_red_shit(rt);
             return;
         }
 
         // Only draw elements with a style
         if node.primary_styles().is_none() {
+            // self.pain_green_shit(rt);
             return;
         }
 
         // Hide elements with "hidden" attribute
         if let Some("true" | "") = node.attr(local_name!("hidden")) {
+            // self.pain_blue_shit(rt);
             return;
         }
 
@@ -467,6 +484,7 @@ impl D2dSceneGenerator<'_> {
         // Hide elements with invisible styling
         let styles = node.primary_styles().unwrap();
         if styles.get_effects().opacity == 0.0 {
+            // self.pain_red_shit(rt);
             return;
         }
 
