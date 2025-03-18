@@ -206,6 +206,7 @@ impl D2dSceneGenerator<'_> {
         let bg_height = (self.height as f32).max(root_element.final_layout.size.height);
 
         // Draw background color if defined
+        // This is what's breaking...
         let background_color = {
             let html_color = root_element
                 .primary_styles()
@@ -234,37 +235,37 @@ impl D2dSceneGenerator<'_> {
             }
         };
 
-        if let Some(bg_color) = background_color {
-            let color_f = bg_color.to_d2d_color();
-            unsafe {
-                let brush = self.create_solid_color_brush(rt, color_f);
-                if let Ok(brush) = brush {
-                    rt.FillRectangle(
-                        &D2D_RECT_F {
-                            left: 0.0,
-                            top: 0.0,
-                            right: bg_width,
-                            bottom: bg_height,
-                        },
-                        &brush,
-                    );
-                }
-            }
-        }
+        // if let Some(bg_color) = background_color {
+        //     let color_f = bg_color.to_d2d_color();
+        //     unsafe {
+        //         let brush = self.create_solid_color_brush(rt, color_f);
+        //         if let Ok(brush) = brush {
+        //             rt.FillRectangle(
+        //                 &D2D_RECT_F {
+        //                     left: 0.0,
+        //                     top: 0.0,
+        //                     right: bg_width,
+        //                     bottom: bg_height,
+        //                 },
+        //                 &brush,
+        //             );
+        //         }
+        //     }
+        // }
 
         // Render the root element at position (-viewport_scroll.x, -viewport_scroll.y)
-        self.render_element(
-            rt,
-            root_id,
-            Point2D::new(-(viewport_scroll.x as f64), -(viewport_scroll.y as f64)),
-        );
+        // self.render_element(
+        //     rt,
+        //     root_id,
+        //     Point2D::new(-(viewport_scroll.x as f64), -(viewport_scroll.y as f64)),
+        // );
 
         // Render debug overlay if enabled
-        if self.devtools.highlight_hover {
-            if let Some(hover_id) = self.dom.as_ref().get_hover_node_id() {
-                self.render_debug_overlay(rt, hover_id);
-            }
-        }
+        // if self.devtools.highlight_hover {
+        //     if let Some(hover_id) = self.dom.as_ref().get_hover_node_id() {
+        //         self.render_debug_overlay(rt, hover_id);
+        //     }
+        // }
 
         // Reset transform
         unsafe {

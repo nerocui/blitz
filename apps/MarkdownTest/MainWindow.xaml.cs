@@ -128,8 +128,8 @@ public sealed partial class MainWindow : Window
 
             DllGetActivationFactory(nativeContext, out var ptr);
             _d2drenderer = WinRT.MarshalInspectable<BlitzWinRT.D2DRenderer>.FromAbi(ptr);
-            if (!g_bSpritesCreated)
-                CreateSprites();
+            //if (!g_bSpritesCreated)
+            //    CreateSprites();
         }
     }
 
@@ -318,46 +318,48 @@ public sealed partial class MainWindow : Window
         HRESULT hr = HRESULT.S_OK;
         if (m_pD2DDeviceContext != null)
         {
-            m_pD2DDeviceContext.BeginDraw();
-            D2D1_SIZE_F size = m_pD2DDeviceContext.GetSize();
+            //m_pD2DDeviceContext.BeginDraw();
+            //D2D1_SIZE_F size = m_pD2DDeviceContext.GetSize();
 
-            if (m_pD2DBitmapBackground != null)
-            {
-                D2D1_SIZE_F sizeBmpBackground = m_pD2DBitmapBackground.GetSize();
-                D2D1_RECT_F destRectBackground = new D2D1_RECT_F(0.0f, 0.0f, size.width, size.height);
-                D2D1_RECT_F sourceRectBackground = new D2D1_RECT_F(0.0f, 0.0f, sizeBmpBackground.width, sizeBmpBackground.height);
-                m_pD2DDeviceContext.DrawBitmap(m_pD2DBitmapBackground, ref destRectBackground, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE.D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, ref sourceRectBackground);
-            }
-            else
-            {
-                m_pD2DDeviceContext.Clear(new ColorF(ColorF.Enum.Black));
-            }
-            if (m_pD2DDeviceContext3 != null)
-            {
-                var nOldAntialiasMode = m_pD2DDeviceContext3.GetAntialiasMode();
-                m_pD2DDeviceContext3.SetAntialiasMode(D2D1_ANTIALIAS_MODE.D2D1_ANTIALIAS_MODE_ALIASED);
+            //if (m_pD2DBitmapBackground != null)
+            //{
+            //    D2D1_SIZE_F sizeBmpBackground = m_pD2DBitmapBackground.GetSize();
+            //    D2D1_RECT_F destRectBackground = new D2D1_RECT_F(0.0f, 0.0f, size.width, size.height);
+            //    D2D1_RECT_F sourceRectBackground = new D2D1_RECT_F(0.0f, 0.0f, sizeBmpBackground.width, sizeBmpBackground.height);
+            //    m_pD2DDeviceContext.DrawBitmap(m_pD2DBitmapBackground, ref destRectBackground, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE.D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, ref sourceRectBackground);
+            //}
+            //else
+            //{
+            //    m_pD2DDeviceContext.Clear(new ColorF(ColorF.Enum.Black));
+            //}
+            //if (m_pD2DDeviceContext3 != null)
+            //{
+            //    var nOldAntialiasMode = m_pD2DDeviceContext3.GetAntialiasMode();
+            //    m_pD2DDeviceContext3.SetAntialiasMode(D2D1_ANTIALIAS_MODE.D2D1_ANTIALIAS_MODE_ALIASED);
 
-                foreach (CSprite s in CSprites)
-                {
-                    s.X += ((rand.NextSingle()) * s.StepX);
-                    s.Y += ((rand.NextSingle()) * s.StepY);
-                    s.Move(m_pD2DDeviceContext3, 0, true);
-                    s.Draw(m_pD2DDeviceContext3, s.CurrentIndex, 1, true);
-                    s.CurrentIndex++;
-                }
-                if (spriteBird != null)
-                {
-                    spriteBird.X += spriteBird.StepX;
-                    spriteBird.Y += spriteBird.StepY;
-                    spriteBird.Move(m_pD2DDeviceContext3, spriteBird.HORIZONTALFLIP_RIGHT, true);
-                    spriteBird.Draw(m_pD2DDeviceContext3, spriteBird.CurrentIndex, 1, true);
-                    spriteBird.CurrentIndex++;
-                }
-                m_pD2DDeviceContext3.SetAntialiasMode(nOldAntialiasMode);
-            }
+            //    foreach (CSprite s in CSprites)
+            //    {
+            //        s.X += ((rand.NextSingle()) * s.StepX);
+            //        s.Y += ((rand.NextSingle()) * s.StepY);
+            //        s.Move(m_pD2DDeviceContext3, 0, true);
+            //        s.Draw(m_pD2DDeviceContext3, s.CurrentIndex, 1, true);
+            //        s.CurrentIndex++;
+            //    }
+            //    if (spriteBird != null)
+            //    {
+            //        spriteBird.X += spriteBird.StepX;
+            //        spriteBird.Y += spriteBird.StepY;
+            //        spriteBird.Move(m_pD2DDeviceContext3, spriteBird.HORIZONTALFLIP_RIGHT, true);
+            //        spriteBird.Draw(m_pD2DDeviceContext3, spriteBird.CurrentIndex, 1, true);
+            //        spriteBird.CurrentIndex++;
+            //    }
+            //    m_pD2DDeviceContext3.SetAntialiasMode(nOldAntialiasMode);
+            //}
 
-            ulong tag1, tag2 = 0;
-            hr = m_pD2DDeviceContext.EndDraw(out tag1, out tag2);
+            _d2drenderer.Render("# This is working!!!");
+
+            //ulong tag1, tag2 = 0;
+            //hr = m_pD2DDeviceContext.EndDraw(out tag1, out tag2);
 
             if ((uint)hr == D2DTools.D2DERR_RECREATE_TARGET)
             {

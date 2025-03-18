@@ -125,34 +125,9 @@ impl bindings::ID2DRenderer_Impl for D2DRenderer_Impl {
                 },
             );
             
-            // End drawing
+            // // End drawing
             device_context.EndDraw(None, None);
             Ok(())
-            // Do this on the C# side
-            // // Present the swapchain
-            // let hr = state.swapchain.Present(1, DXGI_PRESENT(0));
-            // if hr == DXGI_STATUS_OCCLUDED {
-            //     // Window is occluded, can continue
-            // } else if hr == S_OK {
-            //     // Successful presentation - ensure brush is created for next frame if needed
-            //     if state.brush.is_none() {
-            //         let brush = state.device_context.CreateSolidColorBrush(
-            //             &D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-            //             None
-            //         );
-            //         if let Ok(brush) = brush {
-            //             state.brush = Some(brush);
-            //         }
-            //     }
-                
-            //     // Optional: Add debug information in debug builds
-            //     #[cfg(debug_assertions)]
-            //     println!("Frame successfully rendered at {}x{}", width, height);
-            // } else {
-            //     // Handle other presentation errors
-            //     eprintln!("Failed to present swapchain: {:?}", hr);
-            //     self.render_state = None;
-            // }
         }
     }
 }
