@@ -207,58 +207,109 @@ impl D2dSceneGenerator<'_> {
 
         // Draw background color if defined
         // This is what's breaking...
-        let background_color = {
-            let html_color = root_element
-                .primary_styles()
-                .unwrap()
-                .clone_background_color();
-            if html_color == GenericColor::TRANSPARENT_BLACK {
-                root_element
-                    .children
-                    .iter()
-                    .find_map(|id| {
-                        self.dom
-                            .as_ref()
-                            .get_node(*id)
-                            .filter(|node| node.data.is_element_with_tag_name(&local_name!("body")))
-                    })
-                    .and_then(|body| body.primary_styles())
-                    .map(|style| {
-                        let current_color = style.clone_color();
-                        style
-                            .clone_background_color()
-                            .resolve_to_absolute(&current_color)
-                    })
+        let mut background_color: Option<AbsoluteColor> = None;
+        // Get the primary styles of the root element
+        let root_styles_option = root_element.primary_styles();
+        
+        // Check if root styles exist before unwrapping
+        if root_styles_option.is_none() {
+            println!("Warning: Root element has no primary styles");
+            background_color = None;
+        } else {
+            let root_styles = root_styles_option.unwrap();
+            
+            // Get the background color from root styles
+            let html_color = root_styles.clone_background_color();
+            
+            // Check if the HTML color is transparent
+            let is_transparent = html_color == GenericColor::TRANSPARENT_BLACK;
+            
+            if is_transparent {
+                // Start looking for the body element
+                let mut body_element = None;
+                
+                // Iterate through root's children to find body
+                for child_id in &root_element.children {
+                    let node_option = self.dom.as_ref().get_node(*child_id);
+                    
+                    if let Some(node) = node_option {
+                        let is_body = node.data.is_element_with_tag_name(&local_name!("body"));
+                        
+                        if is_body {
+                            body_element = Some(node);
+                            break;
+                        }
+                    }
+                }
+                
+                // If we found a body element, use its background color
+                if let Some(body) = body_element {
+                    let body_styles_option = body.primary_styles();
+                    
+                    if let Some(body_styles) = body_styles_option {
+                        let current_color = body_styles.clone_color();
+                        let bg_color = body_styles.clone_background_color();
+                        let resolved_color = bg_color.resolve_to_absolute(&current_color);
+                        background_color = Some(resolved_color);
+                    } else {
+                        println!("Warning: Body element has no primary styles");
+                        background_color = None;
+                    }
+                } else {
+                    println!("Warning: Could not find body element");
+                    background_color = None;
+                }
             } else {
-                let current_color = root_element.primary_styles().unwrap().clone_color();
-                Some(html_color.resolve_to_absolute(&current_color))
+                // Use the root element's background color
+                let current_color = root_styles.clone_color();
+                let resolved_color = html_color.resolve_to_absolute(&current_color);
+                background_color = Some(resolved_color);
             }
-        };
+        }
 
-        // if let Some(bg_color) = background_color {
-        //     let color_f = bg_color.to_d2d_color();
-        //     unsafe {
-        //         let brush = self.create_solid_color_brush(rt, color_f);
-        //         if let Ok(brush) = brush {
-        //             rt.FillRectangle(
-        //                 &D2D_RECT_F {
-        //                     left: 0.0,
-        //                     top: 0.0,
-        //                     right: bg_width,
-        //                     bottom: bg_height,
-        //                 },
-        //                 &brush,
-        //             );
-        //         }
-        //     }
-        // }
+        // Now we can use background_color
+        if let Some(bg_color) = background_color {
+            let color_f = bg_color.to_d2d_color();
+            unsafe {
+                let brush = self.create_solid_color_brush(rt, color_f);
+                if let Ok(brush) = brush {
+                    rt.FillRectangle(
+                        &D2D_RECT_F {
+                            left: 0.0,
+                            top: 0.0,
+                            right: bg_width,
+                            bottom: bg_height,
+                        },
+                        &brush,
+                    );
+                }
+            }
+        }
+
+        if let Some(bg_color) = background_color {
+            let color_f = bg_color.to_d2d_color();
+            unsafe {
+                let brush = self.create_solid_color_brush(rt, color_f);
+                if let Ok(brush) = brush {
+                    rt.FillRectangle(
+                        &D2D_RECT_F {
+                            left: 0.0,
+                            top: 0.0,
+                            right: bg_width,
+                            bottom: bg_height,
+                        },
+                        &brush,
+                    );
+                }
+            }
+        }
 
         // Render the root element at position (-viewport_scroll.x, -viewport_scroll.y)
-        // self.render_element(
-        //     rt,
-        //     root_id,
-        //     Point2D::new(-(viewport_scroll.x as f64), -(viewport_scroll.y as f64)),
-        // );
+        self.render_element(
+            rt,
+            root_id,
+            Point2D::new(-(viewport_scroll.x as f64), -(viewport_scroll.y as f64)),
+        );
 
         // Render debug overlay if enabled
         // if self.devtools.highlight_hover {

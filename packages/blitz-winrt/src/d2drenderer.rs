@@ -78,6 +78,7 @@ impl bindings::ID2DRenderer_Impl for D2DRenderer_Impl {
     fn Render(&self, content: &HSTRING) -> Result<()> {
         let mut device_context = self.device_context.borrow_mut();
         let mut html = content.to_string();
+        assert!(!html.is_empty(), "Content cannot be empty for rendering");
         let mut stylesheets = Vec::new();
         html = markdown_to_html(html);
         stylesheets.push(String::from(GITHUB_MD_STYLES));
