@@ -13,6 +13,9 @@
     <Nullable>enable</Nullable>
     <CsWinRTIncludes>BlitzWinRT</CsWinRTIncludes>
   </PropertyGroup>
+  <ItemGroup>
+    <None Remove="MarkdownPage.xaml" />
+  </ItemGroup>
 
   <ItemGroup>
     <Content Include="Assets\SplashScreen.scale-200.png" />
@@ -52,6 +55,11 @@
     <None Include="./Libraries/BlitzWinRT.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Page Update="MarkdownPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
   </ItemGroup>
 
   <!--

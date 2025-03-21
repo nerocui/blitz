@@ -23,6 +23,13 @@ public sealed partial class MarkdownPage : Page
         if (e.Parameter is string str)
         {
             markdown = str;
+            D2DContext.SetupRendering(scpD2D, markdown);
         }
+    }
+
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        base.OnNavigatedFrom(e);
+        D2DContext.UnloadPage();
     }
 }
