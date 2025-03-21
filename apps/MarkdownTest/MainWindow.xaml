@@ -51,11 +51,10 @@
             </TextBlock>
         </Border>
 
-        <SwapChainPanel x:Name="scpD2D"
-                        Grid.RowSpan="2"                       
+        <SwapChainPanel x:Name="scpD2D" Grid.RowSpan="2"                       
                         Margin="10, 10, 0, 10"
-                        HorizontalAlignment="Stretch"
-                        VerticalAlignment="Stretch">
+                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                        RenderTransformOrigin="0.5 0.5" >
 
             <!--<Rectangle Fill="{ThemeResource CustomAcrylicBrush}" Width="600" Height="400" />-->
 

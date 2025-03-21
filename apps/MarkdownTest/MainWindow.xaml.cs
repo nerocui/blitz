@@ -84,10 +84,60 @@ public sealed partial class MainWindow : Window
 
     private Random rand = null;
     private Random randColor = null;
-    private int nNbButterflyInitial = 2;
     private List<CSprite> CSprites = new List<CSprite>();
-    private bool g_bSpritesCreated = false;
     private BlitzWinRT.D2DRenderer _d2drenderer;
+    private string _markdown = """
+# Markdown to HTML Conversion
+
+---
+
+## Overview
+
+This document demonstrates the capability of converting markdown into HTML and rendering it in a native DOM. The rendering pipeline utilizes the **Rust programming language**, leveraging the **Direct2D API** for graphical drawing. The result is packaged as a **WinRT component** and consumed seamlessly within a **C# WinUI application**.
+
+---
+
+## Features
+
+### Core Components
+1. **Markdown to HTML Converter**:
+   - Parses markdown syntax and generates HTML output.
+   - Supports nested elements and complex formatting.
+
+2. **Native DOM Renderer**:
+   - Written entirely in Rust for performance and efficiency.
+   - Capable of dynamically updating and manipulating the DOM structure.
+
+3. **Direct2D Integration**:
+   - Renders graphical elements such as text, tables, and decorations.
+   - Ensures high-quality rendering with anti-aliasing and hardware acceleration.
+
+4. **WinRT Packaging**:
+   - Provides interoperability between the Rust implementation and Windows Runtime.
+   - Enables the usage of Rust components in C# projects.
+
+5. **WinUI Consumption**:
+   - Embeds the rendered content within a C# WinUI application.
+   - Uses XAML for UI layout and integrates seamlessly with WinUI controls.
+
+---
+
+## Markdown Syntax Examples
+
+### Heading Levels
+
+```markdown
+# Heading Level 1
+## Heading Level 2
+### Heading Level 3
+
+| Feature       | Description                                    | Status        |
+|---------------|------------------------------------------------|---------------|
+| Markdown      | Parsed into HTML elements                     | Completed     |
+| Rendering     | DOM drawn using Direct2D API                  | In Progress   |
+| WinRT Package | Allows integration with C# WinUI applications | Completed     |
+
+""";
 
     public MainWindow()
     {
@@ -113,7 +163,6 @@ public sealed partial class MainWindow : Window
         if (hr == HRESULT.S_OK)
         {
             hr = CreateDeviceContext();
-            hr = CreateDeviceResources();
             hr = CreateSwapChain(IntPtr.Zero);
             if (hr == HRESULT.S_OK)
             {
@@ -318,56 +367,13 @@ public sealed partial class MainWindow : Window
         HRESULT hr = HRESULT.S_OK;
         if (m_pD2DDeviceContext != null)
         {
-            //m_pD2DDeviceContext.BeginDraw();
-            //D2D1_SIZE_F size = m_pD2DDeviceContext.GetSize();
-
-            //if (m_pD2DBitmapBackground != null)
-            //{
-            //    D2D1_SIZE_F sizeBmpBackground = m_pD2DBitmapBackground.GetSize();
-            //    D2D1_RECT_F destRectBackground = new D2D1_RECT_F(0.0f, 0.0f, size.width, size.height);
-            //    D2D1_RECT_F sourceRectBackground = new D2D1_RECT_F(0.0f, 0.0f, sizeBmpBackground.width, sizeBmpBackground.height);
-            //    m_pD2DDeviceContext.DrawBitmap(m_pD2DBitmapBackground, ref destRectBackground, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE.D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, ref sourceRectBackground);
-            //}
-            //else
-            //{
-            //    m_pD2DDeviceContext.Clear(new ColorF(ColorF.Enum.Black));
-            //}
-            //if (m_pD2DDeviceContext3 != null)
-            //{
-            //    var nOldAntialiasMode = m_pD2DDeviceContext3.GetAntialiasMode();
-            //    m_pD2DDeviceContext3.SetAntialiasMode(D2D1_ANTIALIAS_MODE.D2D1_ANTIALIAS_MODE_ALIASED);
-
-            //    foreach (CSprite s in CSprites)
-            //    {
-            //        s.X += ((rand.NextSingle()) * s.StepX);
-            //        s.Y += ((rand.NextSingle()) * s.StepY);
-            //        s.Move(m_pD2DDeviceContext3, 0, true);
-            //        s.Draw(m_pD2DDeviceContext3, s.CurrentIndex, 1, true);
-            //        s.CurrentIndex++;
-            //    }
-            //    if (spriteBird != null)
-            //    {
-            //        spriteBird.X += spriteBird.StepX;
-            //        spriteBird.Y += spriteBird.StepY;
-            //        spriteBird.Move(m_pD2DDeviceContext3, spriteBird.HORIZONTALFLIP_RIGHT, true);
-            //        spriteBird.Draw(m_pD2DDeviceContext3, spriteBird.CurrentIndex, 1, true);
-            //        spriteBird.CurrentIndex++;
-            //    }
-            //    m_pD2DDeviceContext3.SetAntialiasMode(nOldAntialiasMode);
-            //}
-
-            _d2drenderer.Render("# This is working!!!");
-
-            //ulong tag1, tag2 = 0;
-            //hr = m_pD2DDeviceContext.EndDraw(out tag1, out tag2);
+            _d2drenderer.Render(_markdown);
 
             if ((uint)hr == D2DTools.D2DERR_RECREATE_TARGET)
             {
                 m_pD2DDeviceContext.SetTarget(null);
                 SafeRelease(ref m_pD2DDeviceContext);
                 hr = CreateDeviceContext();
-                CleanDeviceResources();
-                hr = CreateDeviceResources();
                 hr = CreateSwapChain(IntPtr.Zero);
                 hr = ConfigureSwapChain();
             }
@@ -529,31 +535,6 @@ public sealed partial class MainWindow : Window
             Marshal.Release(pDXGISurfacePtr);
         }
         return hr;
-    }
-
-    HRESULT CreateDeviceResources()
-    {
-        HRESULT hr = HRESULT.S_OK;
-        if (m_pD2DDeviceContext != null)
-        {
-            if (m_pMainBrush == null)
-                hr = m_pD2DDeviceContext.CreateSolidColorBrush(new ColorF(ColorF.Enum.Red), BrushProperties(), out m_pMainBrush);
-            if (m_pD2DBitmapBackground == null)
-                hr = CreateD2DBitmapFromURL("https://i.ibb.co/2MtgC8C/clouds-country-daylight-371633.jpg", out m_pD2DBitmapBackground);
-            if (m_pD2DBitmap == null)
-                hr = CreateD2DBitmapFromURL("https://i.ibb.co/QCBKBjD/Flying-bird.png", out m_pD2DBitmap);
-            if (m_pD2DBitmap1 == null)
-                hr = CreateD2DBitmapFromURL("https://i.ibb.co/VgVp09Y/butterfly-sprite-sheet-blue.png", out m_pD2DBitmap1);
-
-            if (m_pD2DDeviceContext3 == null)
-                m_pD2DDeviceContext3 = (ID2D1DeviceContext3)m_pD2DDeviceContext;
-        }
-        return hr;
-    }
-
-    private void CreateSprites()
-    {
-        _d2drenderer.Render("# This is working!!!");
     }
 
     private HRESULT CreateD2DBitmapFromURL(string sURL, out ID2D1Bitmap pD2DBitmap)

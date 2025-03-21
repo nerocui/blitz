@@ -49,7 +49,7 @@ impl HtmlDocument {
         navigation_provider: Arc<dyn NavigationProvider>,
     ) -> Self {
         // Spin up the virtualdom and include the default stylesheet
-        let viewport = Viewport::new(0, 0, 1.0, ColorScheme::Light);
+        let viewport = Viewport::new(720, 1920, 1.0, ColorScheme::Light);
         let mut doc = match font_ctx {
             Some(font_ctx) => BaseDocument::with_font_ctx(viewport, font_ctx),
             None => BaseDocument::new(viewport),

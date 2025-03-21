@@ -96,10 +96,10 @@ impl bindings::ID2DRenderer_Impl for D2DRenderer_Impl {
             Arc::new(navigation_provider),
         );
 
-        doc.as_mut().resolve();
-
         let scroll = doc.as_ref().viewport_scroll();
         doc.as_mut().set_viewport_scroll(scroll);
+
+        doc.as_mut().resolve();
 
         unsafe {
             // Begin drawing
@@ -118,8 +118,8 @@ impl bindings::ID2DRenderer_Impl for D2DRenderer_Impl {
                 &mut *device_context,
                 &doc.as_ref(),
                 1.0,
-                480,
-                640,
+                720,
+                1920,
                 blitz_traits::Devtools {
                     show_layout: false,
                     highlight_hover: false,
