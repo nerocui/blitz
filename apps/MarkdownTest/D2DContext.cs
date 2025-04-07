@@ -53,6 +53,9 @@ namespace MarkdownTest
         [DllImport("Kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         public static extern bool QueryPerformanceFrequency(out LARGE_INTEGER lpFrequency);
 
+        [DllImport("Libraries/BlitzWinRT.dll", CharSet = CharSet.Unicode, CallingConvention = CallingConvention.StdCall)]
+        internal static extern Int32 CreateD2DRenderer(ulong deviceContextPtr, out IntPtr class_instance);
+
         static ID2D1Factory m_pD2DFactory = null;
         static ID2D1Factory1 m_pD2DFactory1 = null;
         static IWICImagingFactory m_pWICImagingFactory = null;
@@ -158,6 +161,7 @@ namespace MarkdownTest
                     {
                         // Use the standard WinRT activation via C# projection
                         // Now using the built-in BlitzWinRT.D2DRenderer class directly
+                        CreateD2DRenderer(contextPtr, out var ptr);
                         _d2dRenderer = new BlitzWinRT.D2DRenderer(contextPtr);
                         _isActive = true;
                         System.Diagnostics.Debug.WriteLine("Successfully created WinRT D2DRenderer");
