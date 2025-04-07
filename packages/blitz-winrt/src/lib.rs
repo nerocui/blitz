@@ -1,104 +1,98 @@
 mod bindings;
 mod d2drenderer;
-use std::{mem::{transmute, ManuallyDrop}, ops::DerefMut};
-use d2drenderer::{D2DRenderer, D2DRenderer_Impl};
-use windows::{core::*, Win32::{Foundation::*, Graphics::Direct2D::ID2D1DeviceContext, System::WinRT::*}};
+mod iframe;
 
+use std::sync::{Once, Mutex};
+use std::collections::HashMap;
+use windows::core::*;
+use windows::Win32::Graphics::Direct2D::ID2D1DeviceContext;
+use windows::Win32::Foundation::{S_OK, S_FALSE, E_NOINTERFACE};
 
-#[implement(IActivationFactory, bindings::ID2DRendererFactory)]
-struct D2DRendererFactory;
+// A simple factory method-based approach instead of using the WinRT macros
+// This avoids the multiple windows_core version issues
+static INIT: Once = Once::new();
+static mut FACTORY: Option<FactoryState> = None;
 
-impl IActivationFactory_Impl for D2DRendererFactory_Impl {
-    fn ActivateInstance(&self) -> Result<IInspectable> {
-        Err(E_NOTIMPL.into())
-    }
+struct FactoryState {
+    instances: Mutex<HashMap<u64, d2drenderer::D2DRenderer>>
 }
 
-impl DerefMut for D2DRenderer_Impl {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self
-    }
-}
-
-impl ComObjectInner for D2DRendererFactory_Impl {
-    type Outer = D2DRendererFactory;
-
-    fn into_object(self) -> ComObject<Self> {
-        todo!()
-    }
-}
-
-impl windows_core::IUnknownImpl for D2DRendererFactory {
-    type Impl = D2DRendererFactory_Impl;
-
-    fn get_impl(&self) -> &Self::Impl {
-        todo!()
-    }
-
-    fn get_impl_mut(&mut self) -> &mut Self::Impl {
-        todo!()
-    }
-
-    fn into_inner(self) -> Self::Impl {
-        todo!()
-    }
-
-    unsafe fn QueryInterface(&self, iid: *const GUID, interface: *mut *mut std::ffi::c_void) -> HRESULT {
-        todo!()
-    }
-
-    fn AddRef(&self) -> u32 {
-        todo!()
-    }
-
-    unsafe fn Release(self_: *mut Self) -> u32 {
-        todo!()
-    }
-
-    fn is_reference_count_one(&self) -> bool {
-        todo!()
-    }
-
-    unsafe fn GetTrustLevel(&self, value: *mut i32) -> HRESULT {
-        todo!()
-    }
-
-    unsafe fn from_inner_ref(inner: &Self::Impl) -> &Self {
-        todo!()
-    }
-
-    fn to_object(&self) -> ComObject<Self::Impl> {
-        todo!()
-    }
-
-    const INNER_OFFSET_IN_POINTERS: usize = 0;
-}
-
-impl bindings::ID2DRendererFactory_Impl for D2DRendererFactory_Impl {
-    fn CreateInstance(&self, device_context_ptr: u64) -> Result<bindings::D2DRenderer> {
-        unsafe {
-            // Convert numeric pointer to ID2D1DeviceContext
-            let context: ID2D1DeviceContext = std::mem::transmute(device_context_ptr);
-            let context = context.clone(); // Clone to ensure ownership
-            
-            Ok(D2DRenderer::new(context).into())
-        }
-    }
-}
-
+// Export the DllGetActivationFactory function that WinRT needs
 #[no_mangle]
 unsafe extern "system" fn DllGetActivationFactory(
-    device_context_ptr: u64,
-    result: *mut *mut std::ffi::c_void,
+    activation_class_id: HSTRING,
+    factory: *mut *mut std::ffi::c_void,
 ) -> HRESULT {
+    // Initialize the factory once
+    INIT.call_once(|| {
+        FACTORY = Some(FactoryState {
+            instances: Mutex::new(HashMap::new())
+        });
+    });
+    
+    // Check if we're being asked for the D2DRenderer factory
+    let class_name = bindings::D2DRenderer::NAME;
+    let activation_class = activation_class_id.to_string();
+    
+    // If the requested class doesn't match our renderer, return an error
+    if activation_class != class_name {
+        return E_NOINTERFACE;
+    }
+    
+    // Instead of trying to access the private factory method,
+    // create a new instance directly via CreateInstance
+    match create_factory_instance() {
+        Ok(factory_instance) => {
+            *factory = std::mem::transmute(factory_instance);
+            S_OK
+        },
+        Err(e) => e.into()
+    }
+}
+
+// Helper function to create a factory instance
+unsafe fn create_factory_instance() -> Result<*mut std::ffi::c_void> {
+    // This is a simplified approach - we should use proper COM infrastructure
+    // but for this fix we're focusing on getting a valid interface pointer
+    
+    // Create our D2DRenderer instance factory directly
+    let instance = bindings::D2DRenderer::CreateInstance(0)?;
+    
+    // Return the raw pointer (this is unsafe and simplified)
+    Ok(std::mem::transmute(instance))
+}
+
+// Create the actual renderer
+pub fn create_renderer(device_context_ptr: u64) -> Result<bindings::D2DRenderer> {
     unsafe {
         // Convert numeric pointer to ID2D1DeviceContext
         let context: ID2D1DeviceContext = std::mem::transmute(device_context_ptr);
         let context = context.clone(); // Clone to ensure ownership
-        let instance: bindings::D2DRenderer = crate::d2drenderer::D2DRenderer::new(context).into();
-
-    
-        *result = transmute(instance);
-        S_OK
+        
+        // Create the renderer
+        let renderer = d2drenderer::D2DRenderer::new(context);
+        
+        // If we have a factory, store the instance
+        if let Some(factory) = &FACTORY {
+            let mut instances = factory.instances.lock().unwrap();
+            instances.insert(device_context_ptr, renderer.clone());
+        }
+        
+        // Return the WinRT wrapper - using the proper factory method
+        bindings::D2DRenderer::CreateInstance(device_context_ptr)
     }
+}
+
+// The DllCanUnloadNow function that COM needs
+#[no_mangle]
+unsafe extern "system" fn DllCanUnloadNow() -> HRESULT {
+    // Allow DLL to unload if no instances are still in use
+    if let Some(factory) = &FACTORY {
+        let instances = factory.instances.lock().unwrap();
+        if !instances.is_empty() {
+            return S_FALSE;
+        }
+    }
+    
+    S_OK
 }

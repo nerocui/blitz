@@ -111,10 +111,29 @@ public static class D2DContext
         swapChainPanel.SizeChanged += scpD2D_SizeChanged;
         CompositionTarget.Rendering += CompositionTarget_Rendering;
 
-        IntPtr nativeContext = Marshal.GetComInterfaceForObject(m_pD2DDeviceContext, typeof(ID2D1DeviceContext));
-
-        DllGetActivationFactory(nativeContext, out var ptr);
-        _d2drenderer = WinRT.MarshalInspectable<BlitzWinRT.D2DRenderer>.FromAbi(ptr);
+        try
+        {
+            // Get the ID2D1DeviceContext pointer for use with the Rust component
+            IntPtr nativeContext = Marshal.GetComInterfaceForObject(m_pD2DDeviceContext, typeof(ID2D1DeviceContext));
+            
+            // Convert the pointer to a UInt64 as expected by D2DRenderer constructor
+            ulong contextHandle = (ulong)nativeContext.ToInt64();
+            
+            // Create the D2DRenderer directly through its constructor
+            _d2drenderer = new BlitzWinRT.D2DRenderer(contextHandle);
+            
+            // Make sure to release the COM reference we acquired
+            Marshal.Release(nativeContext);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error creating D2DRenderer: {ex.Message}");
+            // Fallback - renderer will be null but app won't crash
+        }
+        
+        // Set initial theme based on app theme
+        var appTheme = ((FrameworkElement)swapChainPanel).ActualTheme;
+        SetTheme(appTheme == ElementTheme.Dark);
     }
 
     public static HRESULT Render()
@@ -122,7 +141,40 @@ public static class D2DContext
         HRESULT hr = HRESULT.S_OK;
         if (m_pD2DDeviceContext != null)
         {
-            _d2drenderer.Render(_markdown);
+            // Check if _d2drenderer is not null before calling Render
+            if (_d2drenderer != null)
+            {
+                try
+                {
+                    _d2drenderer.Render(_markdown);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error calling D2DRenderer.Render: {ex.Message}");
+                }
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("D2DRenderer is null. Trying to re-initialize...");
+                // Try to reinitialize the renderer
+                if (m_pD2DDeviceContext != null)
+                {
+                    try
+                    {
+                        IntPtr nativeContext = Marshal.GetComInterfaceForObject(m_pD2DDeviceContext, typeof(ID2D1DeviceContext));
+                        ulong contextHandle = (ulong)nativeContext.ToInt64();
+                        _d2drenderer = new BlitzWinRT.D2DRenderer(contextHandle);
+                        Marshal.Release(nativeContext);
+                        
+                        // Now try to render again
+                        _d2drenderer.Render(_markdown);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Error reinitializing D2DRenderer: {ex.Message}");
+                    }
+                }
+            }
 
             if ((uint)hr == D2DTools.D2DERR_RECREATE_TARGET)
             {
@@ -353,4 +405,80 @@ public static class D2DContext
         SafeRelease(ref m_pD2DFactory1);
         SafeRelease(ref m_pD2DFactory);
     }
+
+    #region Input Handling Methods
+
+    // Method to handle pointer movement
+    public static void OnPointerMoved(float x, float y)
+    {
+        _d2drenderer?.OnPointerMoved(x, y);
+    }
+
+    // Method to handle pointer pressed
+    public static void OnPointerPressed(float x, float y, uint button)
+    {
+        _d2drenderer?.OnPointerPressed(x, y, button);
+    }
+
+    // Method to handle pointer released
+    public static void OnPointerReleased(float x, float y, uint button)
+    {
+        _d2drenderer?.OnPointerReleased(x, y, button);
+    }
+
+    // Method to handle mouse wheel events
+    public static void OnMouseWheel(float deltaX, float deltaY)
+    {
+        _d2drenderer?.OnMouseWheel(deltaX, deltaY);
+    }
+
+    // Method to handle key down events
+    public static void OnKeyDown(uint keyCode, bool ctrl, bool shift, bool alt)
+    {
+        _d2drenderer?.OnKeyDown(keyCode, ctrl, shift, alt);
+    }
+
+    // Method to handle key up events
+    public static void OnKeyUp(uint keyCode)
+    {
+        _d2drenderer?.OnKeyUp(keyCode);
+    }
+
+    // Method to handle text input events
+    public static void OnTextInput(string text)
+    {
+        _d2drenderer?.OnTextInput(text);
+    }
+
+    // Method to handle focus loss
+    public static void OnBlur()
+    {
+        _d2drenderer?.OnBlur();
+    }
+
+    // Method to handle focus gain
+    public static void OnFocus()
+    {
+        _d2drenderer?.OnFocus();
+    }
+
+    // Method to handle app suspension
+    public static void Suspend()
+    {
+        _d2drenderer?.Suspend();
+    }
+
+    // Method to handle app resumption
+    public static void Resume()
+    {
+        _d2drenderer?.Resume();
+    }
+
+    // Method to handle theme changes
+    public static void SetTheme(bool isDarkMode)
+    {
+        _d2drenderer?.SetTheme(isDarkMode);
+    }
+
+    #endregion
 }

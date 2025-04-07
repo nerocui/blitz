@@ -4,5 +4,18 @@ namespace BlitzWinRT
     {
         D2DRenderer(UInt64 d2dDeviceContext);
         void Render(String markdown);
+        void Resize(UInt32 width, UInt32 height);
+        void OnPointerMoved(Single x, Single y);
+        void OnPointerPressed(Single x, Single y, UInt32 button);
+        void OnPointerReleased(Single x, Single y, UInt32 button);
+        void OnMouseWheel(Single deltaX, Single deltaY);
+        void OnKeyDown(UInt32 keyCode, Boolean ctrl, Boolean shift, Boolean alt);
+        void OnKeyUp(UInt32 keyCode);
+        void OnTextInput(String text);
+        void OnBlur();
+        void OnFocus();
+        void Suspend();
+        void Resume();
+        void SetTheme(Boolean isDarkMode);
     }
 }

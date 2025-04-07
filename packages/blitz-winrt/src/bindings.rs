@@ -27,6 +27,140 @@ impl D2DRenderer {
             .ok()
         }
     }
+    pub fn Resize(&self, width: u32, height: u32) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).Resize)(
+                windows_core::Interface::as_raw(this),
+                width,
+                height,
+            )
+            .ok()
+        }
+    }
+    pub fn OnPointerMoved(&self, x: f32, y: f32) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).OnPointerMoved)(
+                windows_core::Interface::as_raw(this),
+                x,
+                y,
+            )
+            .ok()
+        }
+    }
+    pub fn OnPointerPressed(&self, x: f32, y: f32, button: u32) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).OnPointerPressed)(
+                windows_core::Interface::as_raw(this),
+                x,
+                y,
+                button,
+            )
+            .ok()
+        }
+    }
+    pub fn OnPointerReleased(&self, x: f32, y: f32, button: u32) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).OnPointerReleased)(
+                windows_core::Interface::as_raw(this),
+                x,
+                y,
+                button,
+            )
+            .ok()
+        }
+    }
+    pub fn OnMouseWheel(&self, deltax: f32, deltay: f32) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).OnMouseWheel)(
+                windows_core::Interface::as_raw(this),
+                deltax,
+                deltay,
+            )
+            .ok()
+        }
+    }
+    pub fn OnKeyDown(
+        &self,
+        keycode: u32,
+        ctrl: bool,
+        shift: bool,
+        alt: bool,
+    ) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).OnKeyDown)(
+                windows_core::Interface::as_raw(this),
+                keycode,
+                ctrl,
+                shift,
+                alt,
+            )
+            .ok()
+        }
+    }
+    pub fn OnKeyUp(&self, keycode: u32) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).OnKeyUp)(
+                windows_core::Interface::as_raw(this),
+                keycode,
+            )
+            .ok()
+        }
+    }
+    pub fn OnTextInput(&self, text: &windows_core::HSTRING) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).OnTextInput)(
+                windows_core::Interface::as_raw(this),
+                core::mem::transmute_copy(text),
+            )
+            .ok()
+        }
+    }
+    pub fn OnBlur(&self) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).OnBlur)(windows_core::Interface::as_raw(this))
+                .ok()
+        }
+    }
+    pub fn OnFocus(&self) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).OnFocus)(windows_core::Interface::as_raw(this))
+                .ok()
+        }
+    }
+    pub fn Suspend(&self) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).Suspend)(windows_core::Interface::as_raw(this))
+                .ok()
+        }
+    }
+    pub fn Resume(&self) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).Resume)(windows_core::Interface::as_raw(this))
+                .ok()
+        }
+    }
+    pub fn SetTheme(&self, isdarkmode: bool) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).SetTheme)(
+                windows_core::Interface::as_raw(this),
+                isdarkmode,
+            )
+            .ok()
+        }
+    }
     pub fn CreateInstance(d2ddevicecontext: u64) -> windows_core::Result<D2DRenderer> {
         Self::ID2DRendererFactory(|this| unsafe {
             let mut result__ = core::mem::zeroed();
@@ -62,7 +196,7 @@ unsafe impl Sync for D2DRenderer {}
 windows_core::imp::define_interface!(
     ID2DRenderer,
     ID2DRenderer_Vtbl,
-    0x65e142b2_e90a_5daa_87c0_69688748b7af
+    0xdff484b2_94fa_51d1_ba2d_dc033237ec1e
 );
 impl windows_core::RuntimeType for ID2DRenderer {
     const SIGNATURE: windows_core::imp::ConstBuffer =
@@ -73,6 +207,25 @@ impl windows_core::RuntimeName for ID2DRenderer {
 }
 pub trait ID2DRenderer_Impl: windows_core::IUnknownImpl {
     fn Render(&self, markdown: &windows_core::HSTRING) -> windows_core::Result<()>;
+    fn Resize(&self, width: u32, height: u32) -> windows_core::Result<()>;
+    fn OnPointerMoved(&self, x: f32, y: f32) -> windows_core::Result<()>;
+    fn OnPointerPressed(&self, x: f32, y: f32, button: u32) -> windows_core::Result<()>;
+    fn OnPointerReleased(&self, x: f32, y: f32, button: u32) -> windows_core::Result<()>;
+    fn OnMouseWheel(&self, deltaX: f32, deltaY: f32) -> windows_core::Result<()>;
+    fn OnKeyDown(
+        &self,
+        keyCode: u32,
+        ctrl: bool,
+        shift: bool,
+        alt: bool,
+    ) -> windows_core::Result<()>;
+    fn OnKeyUp(&self, keyCode: u32) -> windows_core::Result<()>;
+    fn OnTextInput(&self, text: &windows_core::HSTRING) -> windows_core::Result<()>;
+    fn OnBlur(&self) -> windows_core::Result<()>;
+    fn OnFocus(&self) -> windows_core::Result<()>;
+    fn Suspend(&self) -> windows_core::Result<()>;
+    fn Resume(&self) -> windows_core::Result<()>;
+    fn SetTheme(&self, isDarkMode: bool) -> windows_core::Result<()>;
 }
 impl ID2DRenderer_Vtbl {
     pub const fn new<Identity: ID2DRenderer_Impl, const OFFSET: isize>() -> Self {
@@ -86,9 +239,167 @@ impl ID2DRenderer_Vtbl {
                 ID2DRenderer_Impl::Render(this, core::mem::transmute(&markdown)).into()
             }
         }
+        unsafe extern "system" fn Resize<Identity: ID2DRenderer_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            width: u32,
+            height: u32,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                ID2DRenderer_Impl::Resize(this, width, height).into()
+            }
+        }
+        unsafe extern "system" fn OnPointerMoved<
+            Identity: ID2DRenderer_Impl,
+            const OFFSET: isize,
+        >(
+            this: *mut core::ffi::c_void,
+            x: f32,
+            y: f32,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                ID2DRenderer_Impl::OnPointerMoved(this, x, y).into()
+            }
+        }
+        unsafe extern "system" fn OnPointerPressed<
+            Identity: ID2DRenderer_Impl,
+            const OFFSET: isize,
+        >(
+            this: *mut core::ffi::c_void,
+            x: f32,
+            y: f32,
+            button: u32,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                ID2DRenderer_Impl::OnPointerPressed(this, x, y, button).into()
+            }
+        }
+        unsafe extern "system" fn OnPointerReleased<
+            Identity: ID2DRenderer_Impl,
+            const OFFSET: isize,
+        >(
+            this: *mut core::ffi::c_void,
+            x: f32,
+            y: f32,
+            button: u32,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                ID2DRenderer_Impl::OnPointerReleased(this, x, y, button).into()
+            }
+        }
+        unsafe extern "system" fn OnMouseWheel<Identity: ID2DRenderer_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            deltax: f32,
+            deltay: f32,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                ID2DRenderer_Impl::OnMouseWheel(this, deltax, deltay).into()
+            }
+        }
+        unsafe extern "system" fn OnKeyDown<Identity: ID2DRenderer_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            keycode: u32,
+            ctrl: bool,
+            shift: bool,
+            alt: bool,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                ID2DRenderer_Impl::OnKeyDown(this, keycode, ctrl, shift, alt).into()
+            }
+        }
+        unsafe extern "system" fn OnKeyUp<Identity: ID2DRenderer_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            keycode: u32,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                ID2DRenderer_Impl::OnKeyUp(this, keycode).into()
+            }
+        }
+        unsafe extern "system" fn OnTextInput<Identity: ID2DRenderer_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            text: *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                ID2DRenderer_Impl::OnTextInput(this, core::mem::transmute(&text)).into()
+            }
+        }
+        unsafe extern "system" fn OnBlur<Identity: ID2DRenderer_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                ID2DRenderer_Impl::OnBlur(this).into()
+            }
+        }
+        unsafe extern "system" fn OnFocus<Identity: ID2DRenderer_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                ID2DRenderer_Impl::OnFocus(this).into()
+            }
+        }
+        unsafe extern "system" fn Suspend<Identity: ID2DRenderer_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                ID2DRenderer_Impl::Suspend(this).into()
+            }
+        }
+        unsafe extern "system" fn Resume<Identity: ID2DRenderer_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                ID2DRenderer_Impl::Resume(this).into()
+            }
+        }
+        unsafe extern "system" fn SetTheme<Identity: ID2DRenderer_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            isdarkmode: bool,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                ID2DRenderer_Impl::SetTheme(this, isdarkmode).into()
+            }
+        }
         Self {
             base__: windows_core::IInspectable_Vtbl::new::<Identity, ID2DRenderer, OFFSET>(),
             Render: Render::<Identity, OFFSET>,
+            Resize: Resize::<Identity, OFFSET>,
+            OnPointerMoved: OnPointerMoved::<Identity, OFFSET>,
+            OnPointerPressed: OnPointerPressed::<Identity, OFFSET>,
+            OnPointerReleased: OnPointerReleased::<Identity, OFFSET>,
+            OnMouseWheel: OnMouseWheel::<Identity, OFFSET>,
+            OnKeyDown: OnKeyDown::<Identity, OFFSET>,
+            OnKeyUp: OnKeyUp::<Identity, OFFSET>,
+            OnTextInput: OnTextInput::<Identity, OFFSET>,
+            OnBlur: OnBlur::<Identity, OFFSET>,
+            OnFocus: OnFocus::<Identity, OFFSET>,
+            Suspend: Suspend::<Identity, OFFSET>,
+            Resume: Resume::<Identity, OFFSET>,
+            SetTheme: SetTheme::<Identity, OFFSET>,
         }
     }
     pub fn matches(iid: &windows_core::GUID) -> bool {
@@ -102,6 +413,33 @@ pub struct ID2DRenderer_Vtbl {
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
+    pub Resize:
+        unsafe extern "system" fn(*mut core::ffi::c_void, u32, u32) -> windows_core::HRESULT,
+    pub OnPointerMoved:
+        unsafe extern "system" fn(*mut core::ffi::c_void, f32, f32) -> windows_core::HRESULT,
+    pub OnPointerPressed:
+        unsafe extern "system" fn(*mut core::ffi::c_void, f32, f32, u32) -> windows_core::HRESULT,
+    pub OnPointerReleased:
+        unsafe extern "system" fn(*mut core::ffi::c_void, f32, f32, u32) -> windows_core::HRESULT,
+    pub OnMouseWheel:
+        unsafe extern "system" fn(*mut core::ffi::c_void, f32, f32) -> windows_core::HRESULT,
+    pub OnKeyDown: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        u32,
+        bool,
+        bool,
+        bool,
+    ) -> windows_core::HRESULT,
+    pub OnKeyUp: unsafe extern "system" fn(*mut core::ffi::c_void, u32) -> windows_core::HRESULT,
+    pub OnTextInput: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    pub OnBlur: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub OnFocus: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub Suspend: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub Resume: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub SetTheme: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     ID2DRendererFactory,

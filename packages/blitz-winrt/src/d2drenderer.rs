@@ -1,5 +1,7 @@
 use std::sync::Arc;
 use crate::bindings;
+use crate::iframe::IFrame;
+use windows::Win32::Graphics::Direct2D::ID2D1DeviceContext;
 use windows::Win32::Graphics::Direct2D::Common::D2D1_COLOR_F;
 use windows::Win32::Graphics::Direct2D::*;
 use comrak::{markdown_to_html_with_plugins, ExtensionOptions, Options, Plugins, RenderOptions};
@@ -61,76 +63,76 @@ fn markdown_to_html(contents: String) -> String {
 const GITHUB_MD_STYLES: &str = include_str!("../assets/github-markdown.css");
 const BLITZ_MD_STYLES: &str = include_str!("../assets/blitz-markdown-overrides.css");
 
+#[derive(Clone)]
 #[implement(bindings::D2DRenderer)]
 pub struct D2DRenderer {
-    device_context: RefCell<ID2D1DeviceContext>
+    iframe: Arc<IFrame>,
 }
 
 impl D2DRenderer {
     pub fn new(device_context: ID2D1DeviceContext) -> Self {
         Self {
-            device_context: RefCell::new(device_context)
+            iframe: Arc::new(IFrame::new(device_context)),
         }
     }
 }
 
 impl bindings::ID2DRenderer_Impl for D2DRenderer_Impl {
-    fn Render(&self, content: &HSTRING) -> Result<()> {
-        let mut device_context = self.device_context.borrow_mut();
-        let mut html = content.to_string();
-
-        let mut stylesheets = Vec::new();
-        html = markdown_to_html(html);
-        stylesheets.push(String::from(GITHUB_MD_STYLES));
-        stylesheets.push(String::from(BLITZ_MD_STYLES));
-
-        let net_provider = DummyNetProvider::default();
-        let navigation_provider = DummyNavigationProvider {};
-
-        let mut doc = HtmlDocument::from_html(
-            &html,
-            None,
-            stylesheets,
-            Arc::new(net_provider),
-            None,
-            Arc::new(navigation_provider),
-        );
-
-        let scroll = doc.as_ref().viewport_scroll();
-        doc.as_mut().set_viewport_scroll(scroll);
-
-        doc.as_mut().resolve();
-
-        unsafe {
-            // Begin drawing
-            device_context.BeginDraw();
-            
-            // Clear with white background
-            device_context.Clear(Some(&D2D1_COLOR_F {
-                r: 1.0,
-                g: 1.0,
-                b: 1.0,
-                a: 1.0,
-            }));
-            
-            // Generate the Direct2D scene
-            blitz_renderer_vello::renderer::d2drender::generate_d2d_scene(
-                &mut *device_context,
-                &doc.as_ref(),
-                1.0,
-                720,
-                1920,
-                blitz_traits::Devtools {
-                    show_layout: false,
-                    highlight_hover: false,
-                    show_style: false,
-                    print_hover: false,
-                },
-            );
-            
-            // // End drawing
-            device_context.EndDraw(None, None);
-            Ok(())
-        }
+    fn Render(&self, markdown: &HSTRING) -> Result<()> {
+        // Convert HSTRING to &str and pass by reference
+        self.iframe.render_markdown(&markdown.to_string_lossy())
+    }
+    
+    fn Resize(&self, width: u32, height: u32) -> Result<()> {
+        self.iframe.resize(width, height)
+    }
+    
+    fn OnPointerMoved(&self, x: f32, y: f32) -> Result<()> {
+        self.iframe.pointer_moved(x, y)
+    }
+    
+    fn OnPointerPressed(&self, x: f32, y: f32, button: u32) -> Result<()> {
+        self.iframe.pointer_pressed(x, y, button)
+    }
+    
+    fn OnPointerReleased(&self, x: f32, y: f32, button: u32) -> Result<()> {
+        self.iframe.pointer_released(x, y, button)
+    }
+    
+    fn OnMouseWheel(&self, delta_x: f32, delta_y: f32) -> Result<()> {
+        self.iframe.mouse_wheel(delta_x, delta_y)
+    }
+    
+    fn OnKeyDown(&self, key_code: u32, ctrl: bool, shift: bool, alt: bool) -> Result<()> {
+        self.iframe.key_down(key_code, ctrl, shift, alt)
+    }
+    
+    fn OnKeyUp(&self, key_code: u32) -> Result<()> {
+        self.iframe.key_up(key_code)
+    }
+    
+    fn OnTextInput(&self, text: &HSTRING) -> Result<()> {
+        // Convert HSTRING to &str and pass by reference
+        self.iframe.text_input(&text.to_string_lossy())
+    }
+    
+    fn OnBlur(&self) -> Result<()> {
+        self.iframe.on_blur()
+    }
+    
+    fn OnFocus(&self) -> Result<()> {
+        self.iframe.on_focus()
+    }
+    
+    fn Suspend(&self) -> Result<()> {
+        self.iframe.suspend()
+    }
+    
+    fn Resume(&self) -> Result<()> {
+        self.iframe.resume()
+    }
+    
+    fn SetTheme(&self, is_dark_mode: bool) -> Result<()> {
+        self.iframe.set_theme(is_dark_mode)
     }
 }
