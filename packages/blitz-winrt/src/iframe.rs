@@ -99,6 +99,9 @@ pub struct IFrame {
     
     /// Whether the iframe is active or suspended
     active: RefCell<bool>,
+    
+    /// Content has been initialized
+    content_initialized: RefCell<bool>,
 }
 
 impl IFrame {
@@ -128,6 +131,7 @@ impl IFrame {
             mouse_down_node: RefCell::new(None),
             devtools: RefCell::new(Devtools::default()),
             active: RefCell::new(true),
+            content_initialized: RefCell::new(false),
         }
     }
     
@@ -159,6 +163,7 @@ impl IFrame {
         }
         doc.as_mut().resolve();
         *self.doc.borrow_mut() = doc;
+        *self.content_initialized.borrow_mut() = true;
         
         // Render the document
         self.render()
@@ -166,6 +171,14 @@ impl IFrame {
     
     /// Update viewport dimensions and re-render
     pub fn resize(&self, width: u32, height: u32) -> Result<()> {
+        // If no content has been initialized, just update viewport size without rendering
+        if !*self.content_initialized.borrow() {
+            let mut viewport = self.viewport.lock().unwrap();
+            viewport.window_size = (width, height);
+            return Ok(());
+        }
+        
+        // Update viewport dimensions
         {
             let mut viewport = self.viewport.lock().unwrap();
             viewport.window_size = (width, height);
@@ -179,11 +192,16 @@ impl IFrame {
             doc.as_mut().resolve();
         }
         
+        // Render with updated dimensions
         self.render()
     }
     
     /// Handle mouse move events, dispatch to DOM
     pub fn pointer_moved(&self, x: f32, y: f32) -> Result<()> {
+        if !*self.content_initialized.borrow() {
+            return Ok(());
+        }
+        
         // Store the raw mouse position
         *self.mouse_pos.borrow_mut() = (x, y);
         
@@ -225,6 +243,10 @@ impl IFrame {
     
     /// Handle mouse down events, dispatch to DOM
     pub fn pointer_pressed(&self, x: f32, y: f32, button_code: u32) -> Result<()> {
+        if !*self.content_initialized.borrow() {
+            return Ok(());
+        }
+        
         // Convert button code to MouseEventButton
         let button = match button_code {
             0 => MouseEventButton::Main,     // Left button
@@ -270,6 +292,10 @@ impl IFrame {
     
     /// Handle mouse up events, dispatch to DOM
     pub fn pointer_released(&self, x: f32, y: f32, button_code: u32) -> Result<()> {
+        if !*self.content_initialized.borrow() {
+            return Ok(());
+        }
+        
         // Convert button code to MouseEventButton
         let button = match button_code {
             0 => MouseEventButton::Main,     // Left button
@@ -347,6 +373,10 @@ impl IFrame {
     
     /// Handle mouse wheel events
     pub fn mouse_wheel(&self, delta_x: f32, delta_y: f32) -> Result<()> {
+        if !*self.content_initialized.borrow() {
+            return Ok(());
+        }
+        
         let mut doc = self.doc.borrow_mut();
         
         // Scale deltas to match typical scrolling behavior
@@ -364,7 +394,7 @@ impl IFrame {
     }
     
     /// Handle keyboard key down events
-    pub fn key_down(&self, _key_code: u32, ctrl: bool, shift: bool, alt: bool) -> Result<()> {
+    pub fn key_down(&self, _key_code: u32, _ctrl: bool, _shift: bool, _alt: bool) -> Result<()> {
         // Implementation
         Ok(())
     }
@@ -377,6 +407,10 @@ impl IFrame {
     
     /// Handle text input events (IME, etc.)
     pub fn text_input(&self, text: &str) -> Result<()> {
+        if !*self.content_initialized.borrow() {
+            return Ok(());
+        }
+        
         let mut doc = self.doc.borrow_mut();
         
         if let Some(target) = doc.as_ref().get_focussed_node_id() {
@@ -411,7 +445,10 @@ impl IFrame {
     /// Resume the iframe
     pub fn resume(&self) -> Result<()> {
         *self.active.borrow_mut() = true;
-        self.render()
+        if *self.content_initialized.borrow() {
+            self.render()?;
+        }
+        Ok(())
     }
     
     /// Set theme (light/dark mode)
@@ -427,20 +464,26 @@ impl IFrame {
             viewport.color_scheme = color_scheme;
         }
         
-        // Update the DOM with new viewport
-        {
-            let mut doc = self.doc.borrow_mut();
-            let viewport = self.viewport.lock().unwrap();
-            doc.as_mut().set_viewport(viewport.clone());
-            doc.as_mut().resolve();
+        // Only update DOM if content has been initialized
+        if *self.content_initialized.borrow() {
+            // Update the DOM with new viewport
+            {
+                let mut doc = self.doc.borrow_mut();
+                let viewport = self.viewport.lock().unwrap();
+                doc.as_mut().set_viewport(viewport.clone());
+                doc.as_mut().resolve();
+            }
+            
+            self.render()?;
         }
         
-        self.render()
+        Ok(())
     }
     
     /// Internal function to render the current document
     fn render(&self) -> Result<()> {
-        if (!*self.active.borrow()) {
+        // Skip rendering if inactive or no content has been initialized
+        if !*self.active.borrow() || !*self.content_initialized.borrow() {
             return Ok(());
         }
         
@@ -448,6 +491,11 @@ impl IFrame {
         let doc = self.doc.borrow();
         let viewport = self.viewport.lock().unwrap();
         let devtools = self.devtools.borrow().clone();
+
+        // Skip rendering if viewport dimensions are invalid (0 width/height)
+        if viewport.window_size.0 == 0 || viewport.window_size.1 == 0 {
+            return Ok(());
+        }
 
         unsafe {
             // Begin drawing
@@ -472,7 +520,11 @@ impl IFrame {
             );
             
             // End drawing
-            device_context.EndDraw(None, None)?;
+            let hr = device_context.EndDraw(None, None);
+            if hr.is_err() {
+                // Log the error but don't fail the whole operation
+                println!("Error ending draw: {:?}", hr);
+            }
         }
         
         Ok(())
