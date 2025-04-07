@@ -120,12 +120,38 @@ public sealed partial class MarkdownPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        string markdown = "# Hello, Markdown!";
-        if (e.Parameter is string str)
+        
+        // Use a simple but highly visible test markdown pattern
+        string markdown = @"# Test Markdown Rendering
+
+## This should be clearly visible
+
+- List item 1
+- List item 2
+- List item 3
+
+**Bold text** and *italic text* should render correctly.
+
+```
+Code block
+test
+```
+
+> Quote block test
+
+----
+
+### More Test Content
+Testing 1, 2, 3...";
+
+        // Only use the parameter string if provided
+        if (e.Parameter is string str && !string.IsNullOrEmpty(str))
         {
             markdown = str;
-            D2DContext.SetupRendering(scpD2D, markdown);
         }
+        
+        System.Diagnostics.Debug.WriteLine($"Setting up rendering with markdown content length: {markdown.Length}");
+        D2DContext.SetupRendering(scpD2D, markdown);
     }
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)

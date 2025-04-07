@@ -364,32 +364,9 @@ impl IFrame {
     }
     
     /// Handle keyboard key down events
-    pub fn key_down(&self, key_code: u32, ctrl: bool, shift: bool, alt: bool) -> Result<()> {
-        let mut doc = self.doc.borrow_mut();
-        
-        // Let the document handle key events if there's a focused node
-        if let Some(focus_node_id) = doc.as_ref().get_focussed_node_id() {
-            // Convert the key code to a DomEventData
-            // This is simplified and would need proper conversion in a real implementation
-            doc.handle_event(&mut DomEvent::new(
-                focus_node_id,
-                DomEventData::KeyPress(blitz_traits::BlitzKeyEvent {
-                    key: Key::Character("".into()),
-                    code: Code::KeyA, // Using a placeholder code since we can't convert directly from string
-                    modifiers: Modifiers::empty()
-                        .union(if alt { Modifiers::ALT } else { Modifiers::empty() })
-                        .union(if ctrl { Modifiers::CONTROL } else { Modifiers::empty() })
-                        .union(if shift { Modifiers::SHIFT } else { Modifiers::empty() }),
-                    location: Location::Standard,
-                    is_auto_repeating: false,
-                    is_composing: false,
-                    state: KeyState::Pressed,
-                    text: None,
-                }),
-            ));
-        }
-        
-        self.render()
+    pub fn key_down(&self, _key_code: u32, ctrl: bool, shift: bool, alt: bool) -> Result<()> {
+        // Implementation
+        Ok(())
     }
     
     /// Handle keyboard key up events
@@ -463,7 +440,7 @@ impl IFrame {
     
     /// Internal function to render the current document
     fn render(&self) -> Result<()> {
-        if !*self.active.borrow() {
+        if (!*self.active.borrow()) {
             return Ok(());
         }
         

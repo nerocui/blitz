@@ -1,7 +1,8 @@
 {
   "profiles": {
     "MarkdownTest (Package)": {
-      "commandName": "MsixPackage"
+      "commandName": "MsixPackage",
+      "nativeDebugging": true
     },
     "MarkdownTest (Unpackaged)": {
       "commandName": "Project"

@@ -2,97 +2,67 @@ mod bindings;
 mod d2drenderer;
 mod iframe;
 
-use std::sync::{Once, Mutex};
-use std::collections::HashMap;
 use windows::core::*;
 use windows::Win32::Graphics::Direct2D::ID2D1DeviceContext;
-use windows::Win32::Foundation::{S_OK, S_FALSE, E_NOINTERFACE};
+use windows::Win32::Foundation::{S_OK, E_NOINTERFACE, E_POINTER};
 
-// A simple factory method-based approach instead of using the WinRT macros
-// This avoids the multiple windows_core version issues
-static INIT: Once = Once::new();
-static mut FACTORY: Option<FactoryState> = None;
-
-struct FactoryState {
-    instances: Mutex<HashMap<u64, d2drenderer::D2DRenderer>>
-}
-
-// Export the DllGetActivationFactory function that WinRT needs
+// The DllGetActivationFactory function that WinRT needs
 #[no_mangle]
-unsafe extern "system" fn DllGetActivationFactory(
+pub unsafe extern "system" fn DllGetActivationFactory(
     activation_class_id: HSTRING,
     factory: *mut *mut std::ffi::c_void,
 ) -> HRESULT {
-    // Initialize the factory once
-    INIT.call_once(|| {
-        FACTORY = Some(FactoryState {
-            instances: Mutex::new(HashMap::new())
-        });
-    });
-    
-    // Check if we're being asked for the D2DRenderer factory
-    let class_name = bindings::D2DRenderer::NAME;
-    let activation_class = activation_class_id.to_string();
-    
-    // If the requested class doesn't match our renderer, return an error
-    if activation_class != class_name {
-        return E_NOINTERFACE;
+    if factory.is_null() {
+        return E_POINTER;
     }
-    
-    // Instead of trying to access the private factory method,
-    // create a new instance directly via CreateInstance
-    match create_factory_instance() {
-        Ok(factory_instance) => {
-            *factory = std::mem::transmute(factory_instance);
-            S_OK
-        },
-        Err(e) => e.into()
-    }
+
+    // We don't explicitly implement the factory interface,
+    // as we'll use direct instantiation from C# instead
+    E_NOINTERFACE
 }
 
-// Helper function to create a factory instance
-unsafe fn create_factory_instance() -> Result<*mut std::ffi::c_void> {
-    // This is a simplified approach - we should use proper COM infrastructure
-    // but for this fix we're focusing on getting a valid interface pointer
+// Direct export to create D2DRenderer
+#[no_mangle]
+pub unsafe extern "system" fn CreateD2DRenderer(
+    device_context: u64,
+    renderer: *mut *mut std::ffi::c_void,
+) -> HRESULT {
+    if renderer.is_null() {
+        return E_POINTER;
+    }
     
-    // Create our D2DRenderer instance factory directly
-    let instance = bindings::D2DRenderer::CreateInstance(0)?;
+    // Convert device context pointer to ID2D1DeviceContext
+    let context = std::mem::transmute::<u64, ID2D1DeviceContext>(device_context);
     
-    // Return the raw pointer (this is unsafe and simplified)
-    Ok(std::mem::transmute(instance))
+    // Create our D2DRenderer implementation
+    let instance = d2drenderer::D2DRenderer::new(context);
+    
+    // Box it to keep it alive
+    let boxed_instance = Box::new(instance);
+    
+    // Cast to void pointer
+    let ptr = Box::into_raw(boxed_instance) as *mut std::ffi::c_void;
+    
+    // Return the pointer
+    *renderer = ptr;
+    S_OK
 }
 
-// Create the actual renderer
-pub fn create_renderer(device_context_ptr: u64) -> Result<bindings::D2DRenderer> {
-    unsafe {
-        // Convert numeric pointer to ID2D1DeviceContext
-        let context: ID2D1DeviceContext = std::mem::transmute(device_context_ptr);
-        let context = context.clone(); // Clone to ensure ownership
-        
-        // Create the renderer
-        let renderer = d2drenderer::D2DRenderer::new(context);
-        
-        // If we have a factory, store the instance
-        if let Some(factory) = &FACTORY {
-            let mut instances = factory.instances.lock().unwrap();
-            instances.insert(device_context_ptr, renderer.clone());
-        }
-        
-        // Return the WinRT wrapper - using the proper factory method
-        bindings::D2DRenderer::CreateInstance(device_context_ptr)
+// Direct export to destroy a D2DRenderer
+#[no_mangle]
+pub unsafe extern "system" fn DestroyD2DRenderer(
+    renderer: *mut std::ffi::c_void,
+) -> HRESULT {
+    if !renderer.is_null() {
+        // Convert back to box and drop it
+        let _ = Box::from_raw(renderer as *mut d2drenderer::D2DRenderer);
     }
+    S_OK
 }
 
 // The DllCanUnloadNow function that COM needs
 #[no_mangle]
-unsafe extern "system" fn DllCanUnloadNow() -> HRESULT {
-    // Allow DLL to unload if no instances are still in use
-    if let Some(factory) = &FACTORY {
-        let instances = factory.instances.lock().unwrap();
-        if !instances.is_empty() {
-            return S_FALSE;
-        }
-    }
-    
+pub extern "system" fn DllCanUnloadNow() -> HRESULT {
+    // For now, always allow unloading
     S_OK
 }
