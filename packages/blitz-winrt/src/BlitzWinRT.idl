@@ -1,8 +1,18 @@
 namespace BlitzWinRT
 {
+    // Define a logger interface for debugging
+    interface ILogger
+    {
+        void LogMessage(String message);
+    }
+
     runtimeclass D2DRenderer
     {
         D2DRenderer(UInt64 d2dDeviceContext);
+        
+        // Add a method to set logger
+        void SetLogger(ILogger logger);
+        
         void Render(String markdown);
         void Resize(UInt32 width, UInt32 height);
         void OnPointerMoved(Single x, Single y);
@@ -17,5 +27,6 @@ namespace BlitzWinRT
         void Suspend();
         void Resume();
         void SetTheme(Boolean isDarkMode);
+        void Tick();
     }
 }

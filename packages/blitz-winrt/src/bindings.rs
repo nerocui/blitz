@@ -17,6 +17,19 @@ windows_core::imp::interface_hierarchy!(
     windows_core::IInspectable
 );
 impl D2DRenderer {
+    pub fn SetLogger<P0>(&self, logger: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<ILogger>,
+    {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).SetLogger)(
+                windows_core::Interface::as_raw(this),
+                logger.param().abi(),
+            )
+            .ok()
+        }
+    }
     pub fn Render(&self, markdown: &windows_core::HSTRING) -> windows_core::Result<()> {
         let this = self;
         unsafe {
@@ -161,6 +174,12 @@ impl D2DRenderer {
             .ok()
         }
     }
+    pub fn Tick(&self) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).Tick)(windows_core::Interface::as_raw(this)).ok()
+        }
+    }
     pub fn CreateInstance(d2ddevicecontext: u64) -> windows_core::Result<D2DRenderer> {
         Self::ID2DRendererFactory(|this| unsafe {
             let mut result__ = core::mem::zeroed();
@@ -196,7 +215,7 @@ unsafe impl Sync for D2DRenderer {}
 windows_core::imp::define_interface!(
     ID2DRenderer,
     ID2DRenderer_Vtbl,
-    0xdff484b2_94fa_51d1_ba2d_dc033237ec1e
+    0xe4dd8c6c_d185_5078_bb97_e7ed9464e31f
 );
 impl windows_core::RuntimeType for ID2DRenderer {
     const SIGNATURE: windows_core::imp::ConstBuffer =
@@ -206,6 +225,7 @@ impl windows_core::RuntimeName for ID2DRenderer {
     const NAME: &'static str = "BlitzWinRT.ID2DRenderer";
 }
 pub trait ID2DRenderer_Impl: windows_core::IUnknownImpl {
+    fn SetLogger(&self, logger: windows_core::Ref<'_, ILogger>) -> windows_core::Result<()>;
     fn Render(&self, markdown: &windows_core::HSTRING) -> windows_core::Result<()>;
     fn Resize(&self, width: u32, height: u32) -> windows_core::Result<()>;
     fn OnPointerMoved(&self, x: f32, y: f32) -> windows_core::Result<()>;
@@ -226,9 +246,20 @@ pub trait ID2DRenderer_Impl: windows_core::IUnknownImpl {
     fn Suspend(&self) -> windows_core::Result<()>;
     fn Resume(&self) -> windows_core::Result<()>;
     fn SetTheme(&self, isDarkMode: bool) -> windows_core::Result<()>;
+    fn Tick(&self) -> windows_core::Result<()>;
 }
 impl ID2DRenderer_Vtbl {
     pub const fn new<Identity: ID2DRenderer_Impl, const OFFSET: isize>() -> Self {
+        unsafe extern "system" fn SetLogger<Identity: ID2DRenderer_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            logger: *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                ID2DRenderer_Impl::SetLogger(this, core::mem::transmute_copy(&logger)).into()
+            }
+        }
         unsafe extern "system" fn Render<Identity: ID2DRenderer_Impl, const OFFSET: isize>(
             this: *mut core::ffi::c_void,
             markdown: *mut core::ffi::c_void,
@@ -384,8 +415,18 @@ impl ID2DRenderer_Vtbl {
                 ID2DRenderer_Impl::SetTheme(this, isdarkmode).into()
             }
         }
+        unsafe extern "system" fn Tick<Identity: ID2DRenderer_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                ID2DRenderer_Impl::Tick(this).into()
+            }
+        }
         Self {
             base__: windows_core::IInspectable_Vtbl::new::<Identity, ID2DRenderer, OFFSET>(),
+            SetLogger: SetLogger::<Identity, OFFSET>,
             Render: Render::<Identity, OFFSET>,
             Resize: Resize::<Identity, OFFSET>,
             OnPointerMoved: OnPointerMoved::<Identity, OFFSET>,
@@ -400,6 +441,7 @@ impl ID2DRenderer_Vtbl {
             Suspend: Suspend::<Identity, OFFSET>,
             Resume: Resume::<Identity, OFFSET>,
             SetTheme: SetTheme::<Identity, OFFSET>,
+            Tick: Tick::<Identity, OFFSET>,
         }
     }
     pub fn matches(iid: &windows_core::GUID) -> bool {
@@ -409,6 +451,10 @@ impl ID2DRenderer_Vtbl {
 #[repr(C)]
 pub struct ID2DRenderer_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
+    pub SetLogger: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
     pub Render: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
@@ -440,6 +486,7 @@ pub struct ID2DRenderer_Vtbl {
     pub Suspend: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
     pub Resume: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
     pub SetTheme: unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+    pub Tick: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     ID2DRendererFactory,
@@ -495,5 +542,66 @@ pub struct ID2DRendererFactory_Vtbl {
         *mut core::ffi::c_void,
         u64,
         *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    ILogger,
+    ILogger_Vtbl,
+    0x880f8a23_5d32_5bd5_bb34_01c46da89747
+);
+impl windows_core::RuntimeType for ILogger {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+windows_core::imp::interface_hierarchy!(
+    ILogger,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl ILogger {
+    pub fn LogMessage(&self, message: &windows_core::HSTRING) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).LogMessage)(
+                windows_core::Interface::as_raw(this),
+                core::mem::transmute_copy(message),
+            )
+            .ok()
+        }
+    }
+}
+impl windows_core::RuntimeName for ILogger {
+    const NAME: &'static str = "BlitzWinRT.ILogger";
+}
+pub trait ILogger_Impl: windows_core::IUnknownImpl {
+    fn LogMessage(&self, message: &windows_core::HSTRING) -> windows_core::Result<()>;
+}
+impl ILogger_Vtbl {
+    pub const fn new<Identity: ILogger_Impl, const OFFSET: isize>() -> Self {
+        unsafe extern "system" fn LogMessage<Identity: ILogger_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            message: *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                ILogger_Impl::LogMessage(this, core::mem::transmute(&message)).into()
+            }
+        }
+        Self {
+            base__: windows_core::IInspectable_Vtbl::new::<Identity, ILogger, OFFSET>(),
+            LogMessage: LogMessage::<Identity, OFFSET>,
+        }
+    }
+    pub fn matches(iid: &windows_core::GUID) -> bool {
+        iid == &<ILogger as windows_core::Interface>::IID
+    }
+}
+#[repr(C)]
+pub struct ILogger_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub LogMessage: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
 }

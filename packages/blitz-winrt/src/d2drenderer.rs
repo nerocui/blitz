@@ -10,6 +10,9 @@ use blitz_traits::navigation::DummyNavigationProvider;
 use windows::core::*;
 use std::cell::RefCell;
 
+// Import ILogger directly from the bindings module
+use crate::bindings::ILogger;
+
 fn markdown_to_html(contents: String) -> String {
     let plugins = Plugins::default();
     // let syntax_highligher = CustomSyntectAdapter(SyntectAdapter::new(Some("InspiredGitHub")));
@@ -72,5 +75,15 @@ impl D2DRenderer {
         Self {
             iframe: Arc::new(IFrame::new(device_context)),
         }
+    }
+    
+    // Set logger to use for debug output
+    pub fn set_logger(&self, logger: ILogger) -> Result<()> {
+        self.iframe.set_logger(logger)
+    }
+    
+    // Called by the host application's render loop to perform any pending render operations
+    pub fn tick(&self) -> Result<()> {
+        self.iframe.render_if_needed()
     }
 }

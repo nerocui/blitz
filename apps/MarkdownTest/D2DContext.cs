@@ -10,7 +10,8 @@ using Windows.Foundation;
 using static DXGI.DXGITools;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using WinRT; // Required for proper WinRT interop
+using WinRT;
+using System.Collections.Generic; // Required for proper WinRT interop
 
 namespace MarkdownTest
 {
@@ -42,6 +43,7 @@ namespace MarkdownTest
         void Suspend();
         void Resume();
         void SetTheme(bool isDarkMode);
+        void Tick();
     }
 
     public static class D2DContext
@@ -83,6 +85,7 @@ namespace MarkdownTest
 
         // WinRT D2DRenderer - using the built-in generated class
         static private BlitzWinRT.D2DRenderer _d2dRenderer;
+        static private BlitzWinRT.ILogger _d2dLogger; // Strong reference to prevent GC from collecting it
         static private bool _isActive = false;
 
         public static void Initialize(IntPtr hWndMain)
@@ -127,8 +130,17 @@ namespace MarkdownTest
         {
             System.Diagnostics.Debug.WriteLine($"Setting up rendering with markdown content length: {markdown?.Length}");
             
+            // First ensure a proper cleanup to avoid resource conflicts
+            UnloadPage();
+            
+            // Force garbage collection before creating new resources
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            
+            _rendered = false;
             _swapChainPanel = swapChainPanel;
             _markdown = markdown;
+            
             var hr = CreateSwapChain(IntPtr.Zero);
             if (hr == HRESULT.S_OK)
             {
@@ -138,15 +150,6 @@ namespace MarkdownTest
             }
             swapChainPanel.SizeChanged += scpD2D_SizeChanged;
             CompositionTarget.Rendering += CompositionTarget_Rendering;
-
-            // First dispose of any existing renderer
-            if (_d2dRenderer != null)
-            {
-                _d2dRenderer = null;
-                // Force garbage collection to clean up COM resources
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
-            }
             
             try
             {
@@ -159,10 +162,13 @@ namespace MarkdownTest
                     
                     try
                     {
-                        // Use the standard WinRT activation via C# projection
-                        // Now using the built-in BlitzWinRT.D2DRenderer class directly
-                        CreateD2DRenderer(contextPtr, out var ptr);
                         _d2dRenderer = new BlitzWinRT.D2DRenderer(contextPtr);
+                        
+                        // Create and attach our logger to the renderer
+                        _d2dLogger = new D2DLogger(isVerbose: true);
+                        System.Diagnostics.Debug.WriteLine("Attaching logger to D2DRenderer");
+                        _d2dRenderer.SetLogger(_d2dLogger);
+                        
                         _isActive = true;
                         System.Diagnostics.Debug.WriteLine("Successfully created WinRT D2DRenderer");
                     }
@@ -205,20 +211,28 @@ namespace MarkdownTest
             {
                 try
                 {
-                    // Clear the background to a visible color
-                    // m_pD2DDeviceContext.Clear(new D2D1_COLOR_F() { r = 0.2f, g = 0.2f, b = 0.2f, a = 1.0f });
-
-                    // Use the WinRT D2DRenderer to render markdown
-                    if (_isActive && _d2dRenderer != null && _markdown != null)
+                    // Instead of rendering markdown directly here, we just mark that markdown content is available
+                    // The actual rendering will happen in the CompositionTarget_Rendering method via Tick()
+                    if (_isActive && _d2dRenderer != null && _markdown != null && !_rendered)
                     {
                         try 
                         {
+                            System.Diagnostics.Debug.WriteLine($"Rendering markdown content of length: {_markdown.Length}");
+                            
+                            // Add a small delay before initial render to ensure the DOM is fully initialized
+                            System.Threading.Thread.Sleep(50);
+                            
                             _d2dRenderer.Render(_markdown);
                             _rendered = true;
+                            
+                            // After successful render, add another small delay before ticking 
+                            // to ensure everything is properly set up
+                            System.Threading.Thread.Sleep(16);
                         }
                         catch (Exception ex)
                         {
                             System.Diagnostics.Debug.WriteLine($"Error in WinRT rendering: {ex.Message}");
+                            System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
                             
                             // If we get an exception during rendering, we should recreate the renderer
                             _isActive = false;
@@ -227,17 +241,8 @@ namespace MarkdownTest
                             GC.WaitForPendingFinalizers();
                         }
                     }
-
-                    if ((uint)hr == D2DTools.D2DERR_RECREATE_TARGET)
-                    {
-                        m_pD2DDeviceContext.SetTarget(null);
-                        SafeRelease(ref m_pD2DDeviceContext);
-                        hr = CreateDeviceContext();
-                        hr = CreateSwapChain(IntPtr.Zero);
-                        hr = ConfigureSwapChain();
-                    }
                     
-                    hr = m_pDXGISwapChain1.Present(1, 0);
+                    // No need to present the swap chain here as it's done in CompositionTarget_Rendering
                 }
                 catch (Exception ex)
                 {
@@ -252,34 +257,152 @@ namespace MarkdownTest
         private static void CompositionTarget_Rendering(object sender, object e)
         {
             HRESULT hr = HRESULT.S_OK;
-            // Allow continuous rendering to ensure the Rust component can animate/update as needed
-            if (bRender)
+            
+            if (!bRender || !_isActive || _d2dRenderer == null)
             {
-                Render();
-                
-                if (m_pDXGISwapChain1 != null)
+                return;
+            }
+            
+            try
+            {
+                // First, ensure we have properly configured Direct2D resources
+                if (m_pD2DTargetBitmap == null && m_pDXGISwapChain1 != null)
                 {
-                    DXGI_FRAME_STATISTICS fs = new DXGI_FRAME_STATISTICS();
-                    hr = m_pDXGISwapChain1.GetFrameStatistics(out fs);
-                    // 0x887A000B DXGI_ERROR_FRAME_STATISTICS_DISJOINT            
+                    // If target bitmap is missing but we have a swap chain, try to reconfigure
+                    System.Diagnostics.Debug.WriteLine("Attempting to reconfigure swap chain due to missing target bitmap");
+                    hr = ConfigureSwapChain();
+                    if (hr != HRESULT.S_OK)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to reconfigure swap chain: 0x{hr:X}");
+                        return;
+                    }
+                }
+                
+                // Now proceed with rendering if everything is properly configured
+                bool needsPresent = false;
+
+                // For the first frame or if not yet rendered, make sure to show something
+                if (!_rendered)
+                {
+                    try 
+                    {
+                        // Clear with white background to give immediate visual feedback
+                        m_pD2DDeviceContext.BeginDraw();
+                        m_pD2DDeviceContext.Clear(new D2D1_COLOR_F() { r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f });
+                        
+                        UInt64 tag1 = 0, tag2 = 0;
+                        m_pD2DDeviceContext.EndDraw(out tag1, out tag2);
+                        
+                        needsPresent = true;
+                        System.Diagnostics.Debug.WriteLine("Cleared background to white");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Error during initial render clear: {ex.Message}");
+                        try { m_pD2DDeviceContext.EndDraw(out UInt64 _, out UInt64 _); } catch { }
+                    }
+                }
+                
+                // Call Tick, which will render only if content has changed
+                //System.Diagnostics.Debug.WriteLine("Calling Tick() on D2DRenderer");
+                try
+                {
+                    // Use a try-catch to handle any exceptions from Tick, including WinRT exceptions
+                    _d2dRenderer.Tick();
+                    //System.Diagnostics.Debug.WriteLine("Tick completed successfully");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Exception in Tick: {ex.Message}");
+                    
+                    // Don't fail immediately, allow the swap chain to still present the last 
+                    // successfully rendered frame if we have one
+                    if (!_rendered)
+                    {
+                        // If we haven't successfully rendered anything yet, we need to 
+                        // avoid presenting altogether
+                        needsPresent = false;
+                    }
+                }
+                
+                // Always present after Tick since we can't know if Rust side actually rendered anything
+                needsPresent = true;
+                
+                // Present the swap chain
+                if (needsPresent && m_pDXGISwapChain1 != null)
+                {
+                    //System.Diagnostics.Debug.WriteLine("Presenting swap chain");
+                    hr = m_pDXGISwapChain1.Present(1, 0); // Use vsync (1) for smoother rendering
+                    
                     if (hr == HRESULT.S_OK)
                     {
-                        ulong nCurrentTime = (ulong)fs.SyncQPCTime.QuadPart;
-                        nNbTotalFrames += fs.PresentCount - nLastNbFrames;
-                        if (nLastTime != 0)
+                        _rendered = true;
+                        //System.Diagnostics.Debug.WriteLine("Swap chain presented successfully");
+                    }
+                    else if ((uint)hr == D2DTools.D2DERR_RECREATE_TARGET)
+                    {
+                        System.Diagnostics.Debug.WriteLine("Need to recreate rendering target");
+                        if (m_pD2DDeviceContext != null)
+                            m_pD2DDeviceContext.SetTarget(null);
+                        
+                        SafeRelease(ref m_pD2DTargetBitmap);
+                        
+                        hr = CreateSwapChain(IntPtr.Zero);
+                        if (hr == HRESULT.S_OK)
                         {
-                            nTotalTime += (nCurrentTime - nLastTime);
-                            double nSeconds = nTotalTime / (ulong)liFreq.QuadPart;
-                            if (nSeconds >= 1)
+                            hr = ConfigureSwapChain();
+                            _rendered = false;
+                        }
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Present failed with HRESULT: 0x{hr:X}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in CompositionTarget_Rendering: {ex.Message} (0x{ex.HResult:X8})");
+                
+                // Try to recover from specific D2D errors
+                if (ex.HResult == unchecked((int)0xEE093000) || 
+                    ex.HResult == unchecked((int)0xC994A000) ||
+                    ex.HResult == unchecked((int)0x88990011)) // DXGI_ERROR_DEVICE_REMOVED
+                {
+                    try
+                    {
+                        System.Diagnostics.Debug.WriteLine("Attempting to recover from D2D error");
+                        
+                        // Set target to null before releasing bitmap
+                        if (m_pD2DDeviceContext != null)
+                            m_pD2DDeviceContext.SetTarget(null);
+                            
+                        SafeRelease(ref m_pD2DTargetBitmap);
+                        
+                        // Wait a bit before recreating resources
+                        System.Threading.Thread.Sleep(50);
+                        
+                        if (m_pDXGISwapChain1 != null)
+                        {
+                            hr = ConfigureSwapChain();
+                            if (hr == HRESULT.S_OK)
                             {
-                                System.Diagnostics.Debug.WriteLine($"FPS: {nNbTotalFrames}");
-                                nNbTotalFrames = 0;
-                                nTotalTime = 0;
+                                System.Diagnostics.Debug.WriteLine("Resource recovery successful");
+                                _rendered = false; // Force a redraw
                             }
                         }
-                        nLastNbFrames = fs.PresentCount;
-                        nLastTime = nCurrentTime;
                     }
+                    catch (Exception recovery_ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Recovery failed: {recovery_ex.Message}");
+                        _isActive = false;
+                    }
+                }
+                else
+                {
+                    // For other errors, deactivate the renderer
+                    System.Diagnostics.Debug.WriteLine($"Deactivating renderer due to unrecoverable error");
+                    _isActive = false;
                 }
             }
         }
@@ -293,22 +416,67 @@ namespace MarkdownTest
                 CompositionTarget.Rendering -= CompositionTarget_Rendering;
             }
             
+            // First suspend the renderer to avoid any rendering while we're cleaning up
+            if (_isActive && _d2dRenderer != null)
+            {
+                try
+                {
+                    _d2dRenderer.Suspend();
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error suspending D2DRenderer: {ex.Message}");
+                }
+            }
+            
             // Release the WinRT D2DRenderer
             if (_d2dRenderer != null)
             {
+                // Clear the references
                 _d2dRenderer = null;
-                // Force garbage collection to clean up COM resources
+                _d2dLogger = null; // Clear the logger reference as well
+                _isActive = false;
+                
+                // Force garbage collection to release COM resources
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
             }
             
+            // Reset state variables
             _swapChainPanel = null;
             _markdown = null;
             _rendered = false;
             
-            // Release Direct2D/DXGI resources
+            // Clear Direct2D resources to ensure clean slate for next page
+            if (m_pD2DDeviceContext != null)
+            {
+                // Need to set the target to null before releasing bitmap
+                m_pD2DDeviceContext.SetTarget(null);
+            }
+            
             SafeRelease(ref m_pD2DTargetBitmap);
-            SafeRelease(ref m_pDXGISwapChain1);
+            
+            // Release swapchain last, after ensuring no references remain
+            if (m_pDXGISwapChain1 != null)
+            {
+                // Release outstanding buffer references by presenting with DXGI_PRESENT_DO_NOT_WAIT flag
+                // This flag will discard the current frame without waiting, which effectively
+                // releases references to the swapchain buffers
+                try
+                {
+                    m_pDXGISwapChain1.Present(0, DXGITools.DXGI_PRESENT_DO_NOT_WAIT);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error discarding swapchain buffers: {ex.Message}");
+                }
+                
+                SafeRelease(ref m_pDXGISwapChain1);
+            }
+            
+            // Final GC to ensure everything is cleaned up
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
         }
 
         public static HRESULT Resize(Size sz)
@@ -401,6 +569,34 @@ namespace MarkdownTest
         public static HRESULT CreateSwapChain(IntPtr hWnd)
         {
             HRESULT hr = HRESULT.S_OK;
+            
+            // First ensure any existing swapchain is properly released
+            if (m_pDXGISwapChain1 != null)
+            {
+                try
+                {
+                    // Release outstanding buffer references
+                    m_pDXGISwapChain1.Present(0, DXGITools.DXGI_PRESENT_DO_NOT_WAIT);
+                    
+                    // Set the target to null to release reference to the bitmap
+                    if (m_pD2DDeviceContext != null)
+                    {
+                        m_pD2DDeviceContext.SetTarget(null);
+                    }
+                    
+                    // Release the swap chain
+                    SafeRelease(ref m_pDXGISwapChain1);
+                    
+                    // Force garbage collection to ensure all references are released
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error releasing old swapchain: {ex.Message}");
+                }
+            }
+            
             DXGI_SWAP_CHAIN_DESC1 swapChainDesc = new DXGI_SWAP_CHAIN_DESC1();
             swapChainDesc.Width = 1;
             swapChainDesc.Height = 1;
@@ -440,27 +636,114 @@ namespace MarkdownTest
         public static HRESULT ConfigureSwapChain()
         {
             HRESULT hr = HRESULT.S_OK;
-
+            
+            // First ensure any existing target bitmap is released
+            if (m_pD2DTargetBitmap != null)
+            {
+                if (m_pD2DDeviceContext != null)
+                {
+                    try
+                    {
+                        m_pD2DDeviceContext.SetTarget(null);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Error clearing target: {ex.Message}");
+                    }
+                }
+                SafeRelease(ref m_pD2DTargetBitmap);
+            }
+            
+            // Make sure swap chain is valid
+            if (m_pDXGISwapChain1 == null)
+            {
+                System.Diagnostics.Debug.WriteLine("Cannot configure swap chain: swap chain is null");
+                return HRESULT.E_POINTER;
+            }
+            
+            // Make sure device context is valid
+            if (m_pD2DDeviceContext == null)
+            {
+                System.Diagnostics.Debug.WriteLine("Cannot configure swap chain: device context is null");
+                return HRESULT.E_POINTER;
+            }
+            
+            // Wait for GPU to finish all operations before trying to access the swap chain buffer
+            System.Threading.Thread.Sleep(50);
+            
             D2D1_BITMAP_PROPERTIES1 bitmapProperties = new D2D1_BITMAP_PROPERTIES1();
             bitmapProperties.bitmapOptions = D2D1_BITMAP_OPTIONS.D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS.D2D1_BITMAP_OPTIONS_CANNOT_DRAW;
-            bitmapProperties.pixelFormat = D2DTools.PixelFormat(DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE.D2D1_ALPHA_MODE_IGNORE);
+            bitmapProperties.pixelFormat = D2DTools.PixelFormat(DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE.D2D1_ALPHA_MODE_PREMULTIPLIED);
             uint nDPI = GetDpiForWindow(_hWndMain);
+            if (nDPI == 0) nDPI = 96; // Use default DPI if window handle is invalid
             bitmapProperties.dpiX = nDPI;
             bitmapProperties.dpiY = nDPI;
 
-            IntPtr pDXGISurfacePtr = IntPtr.Zero;
-            hr = m_pDXGISwapChain1.GetBuffer(0, typeof(IDXGISurface).GUID, out pDXGISurfacePtr);
-            if (hr == HRESULT.S_OK)
+            try
             {
-                IDXGISurface pDXGISurface = Marshal.GetObjectForIUnknown(pDXGISurfacePtr) as IDXGISurface;
-                hr = m_pD2DDeviceContext.CreateBitmapFromDxgiSurface(pDXGISurface, ref bitmapProperties, out m_pD2DTargetBitmap);
-                if (hr == HRESULT.S_OK)
+                IntPtr pDXGISurfacePtr = IntPtr.Zero;
+                hr = m_pDXGISwapChain1.GetBuffer(0, typeof(IDXGISurface).GUID, out pDXGISurfacePtr);
+                
+                if (hr == HRESULT.S_OK && pDXGISurfacePtr != IntPtr.Zero)
                 {
-                    m_pD2DDeviceContext.SetTarget(m_pD2DTargetBitmap);
+                    System.Diagnostics.Debug.WriteLine("Successfully acquired swap chain buffer");
+                    
+                    IDXGISurface pDXGISurface = Marshal.GetObjectForIUnknown(pDXGISurfacePtr) as IDXGISurface;
+                    
+                    if (pDXGISurface != null)
+                    {
+                        hr = m_pD2DDeviceContext.CreateBitmapFromDxgiSurface(pDXGISurface, ref bitmapProperties, out m_pD2DTargetBitmap);
+                        
+                        if (hr == HRESULT.S_OK && m_pD2DTargetBitmap != null)
+                        {
+                            System.Diagnostics.Debug.WriteLine("Successfully created target bitmap from DXGI surface");
+                            m_pD2DDeviceContext.SetTarget(m_pD2DTargetBitmap);
+                            
+                            // Clear with white background to give immediate visual feedback
+                            m_pD2DDeviceContext.BeginDraw();
+                            m_pD2DDeviceContext.Clear(new D2D1_COLOR_F() { r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f });
+                            
+                            UInt64 tag1 = 0, tag2 = 0;
+                            hr = m_pD2DDeviceContext.EndDraw(out tag1, out tag2);
+                            
+                            if (hr != HRESULT.S_OK)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"EndDraw failed in ConfigureSwapChain: 0x{hr:X}");
+                            }
+                            
+                            // Present immediately to show something on screen
+                            hr = m_pDXGISwapChain1.Present(1, 0);
+                            if (hr != HRESULT.S_OK)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"Present failed in ConfigureSwapChain: 0x{hr:X}");
+                            }
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Failed to create target bitmap: 0x{hr:X}");
+                        }
+                        
+                        SafeRelease(ref pDXGISurface);
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("Failed to get IDXGISurface from pointer");
+                        hr = HRESULT.E_NOINTERFACE;
+                    }
+                    
+                    Marshal.Release(pDXGISurfacePtr);
                 }
-                SafeRelease(ref pDXGISurface);
-                Marshal.Release(pDXGISurfacePtr);
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to get swap chain buffer: 0x{hr:X}");
+                }
             }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error configuring swap chain: {ex.Message} (0x{ex.HResult:X8})");
+                hr = HRESULT.E_FAIL;
+            }
+            
             return hr;
         }
 
@@ -473,10 +756,12 @@ namespace MarkdownTest
                 CompositionTarget.Rendering -= CompositionTarget_Rendering;
             }
             
-            // First dispose D2DRenderer
-            if (_d2dRenderer != null)
+            // First dispose D2DRenderer and logger
+            if (_d2dRenderer != null || _d2dLogger != null)
             {
                 _d2dRenderer = null;
+                _d2dLogger = null;
+                
                 // Force garbage collection to clean up COM resources
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
@@ -723,5 +1008,66 @@ namespace MarkdownTest
         }
 
         #endregion
+    }
+
+    // Logger implementation for our WinRT interface
+    public class D2DLogger : BlitzWinRT.ILogger
+    {
+        private int _messageCounter = 0;
+        private bool _isVerbose;
+        private static List<string> _logBuffer = new List<string>();
+        private static readonly int MaxBufferSize = 1000;
+        
+        public D2DLogger(bool isVerbose = true)
+        {
+            _isVerbose = isVerbose;
+            LogMessage("D2DLogger created");
+        }
+        
+        public void LogMessage(string message)
+        {
+            try
+            {
+                int counter = System.Threading.Interlocked.Increment(ref _messageCounter);
+                string timestampedMessage = $"[{counter}] {DateTime.Now.ToString("HH:mm:ss.fff")} - {message}";
+                
+                // Always store in buffer for potential diagnostic retrieval
+                lock (_logBuffer)
+                {
+                    _logBuffer.Add(timestampedMessage);
+                    if (_logBuffer.Count > MaxBufferSize)
+                    {
+                        _logBuffer.RemoveAt(0);
+                    }
+                }
+                
+                // Always output to debug console for immediate visibility
+                System.Diagnostics.Debug.WriteLine($"[RUST] {timestampedMessage}");
+            }
+            catch (Exception ex)
+            {
+                // Output directly to console if there's an issue with the logger itself
+                System.Diagnostics.Debug.WriteLine($"Error in logger: {ex.Message}");
+                Console.WriteLine($"Error in logger: {ex.Message}");
+            }
+        }
+        
+        // Get all logs as a single string for diagnostic purposes
+        public static string GetAllLogs()
+        {
+            lock (_logBuffer)
+            {
+                return string.Join(Environment.NewLine, _logBuffer);
+            }
+        }
+        
+        // Clear log buffer
+        public static void ClearLogs()
+        {
+            lock (_logBuffer)
+            {
+                _logBuffer.Clear();
+            }
+        }
     }
 }
