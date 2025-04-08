@@ -779,6 +779,7 @@ dependencies = [
  "windows-bindgen",
  "windows-core 0.60.1",
  "windows-metadata",
+ "windows-numerics",
  "windows-targets 0.53.0",
 ]
 

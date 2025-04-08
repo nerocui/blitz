@@ -1,6 +1,13 @@
+// Import bindings module - provides access to the ILogger interface
 mod bindings;
-mod d2drenderer;
+// Import iframe module
 mod iframe;
+// Import D2DRenderer module that wraps IFrame
+mod d2drenderer;
+
+pub use bindings::*;
+pub use iframe::*;
+pub use d2drenderer::*;
 
 use windows::core::*;
 use windows::Win32::Graphics::Direct2D::ID2D1DeviceContext;
@@ -359,14 +366,31 @@ unsafe extern "system" fn d2drenderer_render(
     markdown: HSTRING
 ) -> HRESULT {
     let impl_ptr = this as *mut D2DRendererImpl;
-    (*impl_ptr).inner.iframe.log(&format!("d2drenderer_render called with markdown length: {}", markdown.len()));
-    match (*impl_ptr).inner.iframe.render_markdown(&markdown.to_string()) {
+    let markdown_str = markdown.to_string();
+    
+    // Log through the established logger if available - use get_logger() method instead of direct field access
+    if let Some(logger) = (*impl_ptr).inner.iframe.get_logger() {
+        let message = format!("d2drenderer_render called with {} bytes of markdown", markdown_str.len());
+        let hstring_message = windows::core::HSTRING::from(message);
+        let _ = logger.LogMessage(&hstring_message);
+    }
+    
+    // Call the renderer's render_markdown method
+    match (*impl_ptr).inner.render_markdown(&markdown_str) {
         Ok(_) => {
-            (*impl_ptr).inner.iframe.log("d2drenderer_render completed successfully");
+            if let Some(logger) = (*impl_ptr).inner.iframe.get_logger() {
+                let message = "d2drenderer_render completed successfully";
+                let hstring_message = windows::core::HSTRING::from(message);
+                let _ = logger.LogMessage(&hstring_message);
+            }
             S_OK
         },
         Err(e) => {
-            (*impl_ptr).inner.iframe.log(&format!("d2drenderer_render failed: {:?}", e));
+            if let Some(logger) = (*impl_ptr).inner.iframe.get_logger() {
+                let message = format!("d2drenderer_render failed: {:?}", e);
+                let hstring_message = windows::core::HSTRING::from(message);
+                let _ = logger.LogMessage(&hstring_message);
+            }
             e.into()
         }
     }

@@ -335,7 +335,7 @@ namespace MarkdownTest
                 bool needsPresent = false;
 
                 // For the first frame or if not yet rendered, make sure to show something
-                if (!_rendered)
+                if (!_rendered && _d2dRenderer == null)
                 {
                     try 
                     {
@@ -1160,17 +1160,8 @@ namespace MarkdownTest
                             
                             m_pD2DDeviceContext.SetTarget(m_pD2DTargetBitmap);
                             
-                            // Clear with white background to give immediate visual feedback
-                            m_pD2DDeviceContext.BeginDraw();
-                            m_pD2DDeviceContext.Clear(new D2D1_COLOR_F() { r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f });
-                            
-                            UInt64 tag1 = 0, tag2 = 0;
-                            hr = m_pD2DDeviceContext.EndDraw(out tag1, out tag2);
-                            
-                            if (hr != HRESULT.S_OK)
-                            {
-                                System.Diagnostics.Debug.WriteLine($"EndDraw failed in ConfigureSwapChain: 0x{hr:X}");
-                            }
+                            // IMPORTANT: We're no longer clearing with white here
+                            // Let the Rust-based renderer control the background color
                             
                             // Present immediately to show something on screen
                             hr = m_pDXGISwapChain1.Present(1, 0);

@@ -23,6 +23,7 @@ scopeguard = "1.2"
 windows.workspace = true
 windows-core.workspace = true
 windows-targets.workspace = true
+windows-numerics = "0.1.1"
 
 [build-dependencies]
 windows-bindgen.workspace=true

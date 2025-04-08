@@ -15,8 +15,6 @@ use crate::bindings::ILogger;
 
 fn markdown_to_html(contents: String) -> String {
     let plugins = Plugins::default();
-    // let syntax_highligher = CustomSyntectAdapter(SyntectAdapter::new(Some("InspiredGitHub")));
-    // plugins.render.codefence_syntax_highlighter = Some(&syntax_highligher as _);
 
     let body_html = markdown_to_html_with_plugins(
         &contents,
@@ -65,40 +63,114 @@ fn markdown_to_html(contents: String) -> String {
 const GITHUB_MD_STYLES: &str = include_str!("../assets/github-markdown.css");
 const BLITZ_MD_STYLES: &str = include_str!("../assets/blitz-markdown-overrides.css");
 
-// Our D2DRenderer is now just a simple wrapper around IFrame
+/// Wraps an IFrame and provides a D2D-based renderer implementation
 pub struct D2DRenderer {
-    pub iframe: Arc<IFrame>,
+    /// The iframe that manages document and rendering
+    pub iframe: IFrame,
 }
 
 impl D2DRenderer {
+    /// Create a new D2DRenderer with the given Direct2D device context
     pub fn new(device_context: ID2D1DeviceContext) -> Self {
-        // Can't use logger yet since it's not set, will be visible in console only
-        println!("[Rust debug] Creating new D2DRenderer");
+        // Log through logger if available - will fall back to println if not
         Self {
-            iframe: Arc::new(IFrame::new(device_context)),
+            iframe: IFrame::new(device_context),
         }
     }
-    
-    // Set logger to use for debug output
+
+    /// Pass the logger from C# to the iframe
     pub fn set_logger(&self, logger: ILogger) -> Result<()> {
-        // Log before setting logger (will only be visible in console)
-        println!("[Rust debug] D2DRenderer.set_logger called");
+        self.iframe.log("D2DRenderer::set_logger() - Setting logger");
+        self.iframe.set_logger(logger)
+    }
+
+    /// Tick function called by the rendering loop - delegates to the iframe
+    pub fn tick(&self) -> Result<()> {
+        self.iframe.log("D2DRenderer::tick() - Forwarding to IFrame rendering pipeline");
         
-        let result = self.iframe.set_logger(logger);
+        // We need to make sure we call render_if_needed() to actually perform rendering
+        self.iframe.render_if_needed()
+    }
+    
+    /// Render markdown content - delegates to the iframe
+    pub fn render_markdown(&self, markdown: &str) -> Result<()> {
+        self.iframe.log(&format!("D2DRenderer::render_markdown() with {} bytes", markdown.len()));
         
-        // Now we can use the logger through iframe
-        self.iframe.log("D2DRenderer.set_logger completed");
+        // Forward to IFrame implementation
+        let result = self.iframe.render_markdown(markdown);
+        
+        // Log the result for debugging
+        match &result {
+            Ok(_) => self.iframe.log("D2DRenderer::render_markdown() succeeded"),
+            Err(e) => self.iframe.log(&format!("D2DRenderer::render_markdown() failed with error: {:?}", e)),
+        }
+        
         result
     }
     
-    // Called by the host application's render loop to perform any pending render operations
-    pub fn tick(&self) -> Result<()> {
-        self.iframe.log("D2DRenderer.tick called");
-        let result = self.iframe.render_if_needed();
-        match &result {
-            Ok(_) => self.iframe.log("D2DRenderer.tick - render_if_needed completed successfully"),
-            Err(e) => self.iframe.log(&format!("D2DRenderer.tick - render_if_needed failed: {:?}", e)),
-        }
-        result
+    /// Resize the renderer
+    pub fn resize(&self, width: u32, height: u32) -> Result<()> {
+        self.iframe.log(&format!("D2DRenderer::resize({}, {})", width, height));
+        self.iframe.resize(width, height)
+    }
+    
+    /// Handle pointer move events
+    pub fn pointer_moved(&self, x: f32, y: f32) -> Result<()> {
+        self.iframe.pointer_moved(x, y)
+    }
+    
+    /// Handle pointer press events
+    pub fn pointer_pressed(&self, x: f32, y: f32, button: u32) -> Result<()> {
+        self.iframe.pointer_pressed(x, y, button)
+    }
+    
+    /// Handle pointer release events
+    pub fn pointer_released(&self, x: f32, y: f32, button: u32) -> Result<()> {
+        self.iframe.pointer_released(x, y, button)
+    }
+    
+    /// Handle mouse wheel events
+    pub fn mouse_wheel(&self, delta_x: f32, delta_y: f32) -> Result<()> {
+        self.iframe.mouse_wheel(delta_x, delta_y)
+    }
+    
+    /// Handle key down events
+    pub fn key_down(&self, key_code: u32, ctrl: bool, shift: bool, alt: bool) -> Result<()> {
+        self.iframe.key_down(key_code, ctrl, shift, alt)
+    }
+    
+    /// Handle key up events
+    pub fn key_up(&self, key_code: u32) -> Result<()> {
+        self.iframe.key_up(key_code)
+    }
+    
+    /// Handle text input events
+    pub fn text_input(&self, text: &str) -> Result<()> {
+        self.iframe.text_input(text)
+    }
+    
+    /// Handle blur events
+    pub fn on_blur(&self) -> Result<()> {
+        self.iframe.on_blur()
+    }
+    
+    /// Handle focus events
+    pub fn on_focus(&self) -> Result<()> {
+        self.iframe.on_focus()
+    }
+    
+    /// Suspend the renderer
+    pub fn suspend(&self) -> Result<()> {
+        self.iframe.suspend()
+    }
+    
+    /// Resume the renderer
+    pub fn resume(&self) -> Result<()> {
+        self.iframe.resume()
+    }
+    
+    /// Set the theme (light/dark mode)
+    pub fn set_theme(&self, is_dark_mode: bool) -> Result<()> {
+        self.iframe.set_theme(is_dark_mode)
     }
 }

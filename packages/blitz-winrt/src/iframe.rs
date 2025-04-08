@@ -1,7 +1,6 @@
 use std::sync::{Arc, Mutex};
 use std::cell::RefCell;
 
-use blitz_dom::BaseDocument;
 use blitz_html::HtmlDocument;
 use blitz_traits::{
     BlitzMouseButtonEvent, ColorScheme, Devtools, Document, MouseEventButton, MouseEventButtons, Viewport, 
@@ -13,14 +12,19 @@ use blitz_traits::net::DummyNetProvider;
 use blitz_traits::navigation::DummyNavigationProvider;
 use keyboard_types::{Code, Key, Location, Modifiers};
 
-use windows::Win32::Graphics::Direct2D::Common::{D2D1_COLOR_F, D2D_RECT_F};
-use windows::Win32::Graphics::Direct2D::{ID2D1DeviceContext};
+// Direct2D imports
+use windows::Win32::Graphics::Direct2D::Common::D2D1_COLOR_F;
+use windows::Win32::Graphics::Direct2D::ID2D1DeviceContext;
+use windows::Win32::Graphics::Direct2D::{D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE};
+use windows_numerics::Matrix3x2;
 use windows::core::*;
-use windows::Win32::Foundation::E_FAIL; // Import the E_FAIL constant
 
 // Import ILogger directly from the bindings module
 use crate::bindings::ILogger;
 use comrak::{markdown_to_html_with_plugins, ExtensionOptions, Options, Plugins, RenderOptions};
+
+// Import the d2drender module directly from blitz-renderer-vello
+use blitz_renderer_vello::renderer::d2drender;
 
 /// Converts markdown text to HTML with GitHub-style formatting
 fn markdown_to_html(contents: String) -> String {
@@ -82,7 +86,7 @@ pub struct IFrame {
     device_context: RefCell<ID2D1DeviceContext>,
     
     /// Lock to ensure exclusive access to the device context during rendering
-    device_context_lock: Mutex<()>,
+    device_context_lock: Mutex<()>, 
 
     /// The physical dimensions of the viewport
     viewport: Mutex<Viewport>,
@@ -148,7 +152,7 @@ impl IFrame {
             devtools: RefCell::new(Devtools::default()),
             active: RefCell::new(true),
             content_initialized: RefCell::new(false),
-            needs_render: RefCell::new(false),
+            needs_render: RefCell::new(true),
             drawing_in_progress: RefCell::new(false),
             logger: RefCell::new(None), // Initialize logger as None
         }
@@ -161,26 +165,31 @@ impl IFrame {
         Ok(())
     }
     
+    /// Get a reference to the current logger
+    pub fn get_logger(&self) -> Option<ILogger> {
+        self.logger.borrow().clone()
+    }
+    
     /// Send a log message to the C# side if a logger is available
     pub fn log(&self, message: &str) {
         if let Some(logger) = self.logger.borrow().as_ref() {
             // Use catch_unwind to prevent panics in logging from crashing the app
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                // First try to write to stdout for debugging (mostly for development, not seen by C#)
-                println!("[IFRAME] {}", message);
-                
                 // Convert the &str to an HSTRING before passing to LogMessage
                 let hstring_message = windows::core::HSTRING::from(message);
                 logger.LogMessage(&hstring_message)
             }));
             
             if let Err(_) = result {
-                // If logging itself panics, print to stdout as a last resort
-                println!("[IFRAME ERROR] Panic while trying to log: {}", message);
+                // If logging itself panics, we can't do much but silently continue
+                // In a debug build, we might still want to see these failures
+                #[cfg(debug_assertions)]
+                eprintln!("[IFRAME ERROR] Panic while trying to log: {}", message);
             }
         } else {
-            // Fall back to println if no logger is available
-            println!("[IFRAME] {}", message);
+            // Only fall back to eprintln in debug mode
+            #[cfg(debug_assertions)]
+            eprintln!("[IFRAME] No logger attached: {}", message);
         }
     }
     
@@ -218,7 +227,7 @@ impl IFrame {
         *self.doc.borrow_mut() = doc;
         *self.content_initialized.borrow_mut() = true;
         
-        // Force an immediate render
+        // IMPORTANT: Force an immediate render - explicitly set needs_render to true
         *self.needs_render.borrow_mut() = true;
         self.log("Document updated, forcing render");
         
@@ -253,6 +262,10 @@ impl IFrame {
             doc.as_mut().set_viewport(viewport.clone());
             doc.as_mut().resolve();
         }
+        
+        // IMPORTANT: Always force a render after resize
+        *self.needs_render.borrow_mut() = true;
+        self.log(&format!("Resizing to {}x{}, forcing render", width, height));
         
         // Render with updated dimensions
         self.render()
@@ -679,8 +692,22 @@ impl IFrame {
     
     /// Performs the actual rendering if needed
     pub fn render_if_needed(&self) -> Result<()> {
+        self.log("D2DRenderer.render_if_needed starting");
+        
+        // Add extensive debugging
+        {
+            let is_active = *self.active.borrow();
+            let is_initialized = *self.content_initialized.borrow();
+            let needs_render = *self.needs_render.borrow();
+            let drawing_in_progress = *self.drawing_in_progress.borrow();
+            
+            self.log(&format!("Render state: active={}, initialized={}, needs_render={}, drawing_in_progress={}", 
+                is_active, is_initialized, needs_render, drawing_in_progress));
+        }
+        
         // Skip if we don't need to render
         if !*self.needs_render.borrow() {
+            self.log("D2DRenderer.render_if_needed no need to render");
             return Ok(());
         }
 
@@ -719,7 +746,7 @@ impl IFrame {
         *self.drawing_in_progress.borrow_mut() = true;
         
         // Create a scope to ensure we always unset the drawing flag when done
-        let result = {
+        let result: Result<()> = {
             let doc = match self.doc.try_borrow() {
                 Ok(doc) => doc,
                 Err(_) => {
@@ -751,7 +778,6 @@ impl IFrame {
             let mut device_context = match self.device_context.try_borrow_mut() {
                 Ok(ctx) => ctx,
                 Err(_) => {
-                    // If we can't borrow the device context, mark that we need to render again later
                     *self.needs_render.borrow_mut() = true;
                     *self.drawing_in_progress.borrow_mut() = false;
                     self.log("Could not borrow device context for rendering");
@@ -793,142 +819,85 @@ impl IFrame {
                     device_context.BeginDraw();
                     self.log("BeginDraw called successfully");
                     
-                    // Clear background with white - ensure it's visible!
-                    let background_color = D2D1_COLOR_F {
-                        r: 1.0, // White
-                        g: 1.0,
-                        b: 1.0,
-                        a: 1.0,
-                    };
-                    device_context.Clear(Some(&background_color));
-                    self.log("Background cleared to white");
-                    
-                    // Create debug visual elements to verify rendering pipeline
-                    self.log("Adding debug visual markers");
-                    
-                    // Draw a blue square in top-left
-                    let blue_color = D2D1_COLOR_F {
-                        r: 0.0, // Blue
-                        g: 0.0,
-                        b: 1.0, 
-                        a: 1.0, // Full opacity for better visibility
-                    };
-                    
-                    // Blue square
-                    let blue_square = D2D_RECT_F {
-                        left: 10.0,
-                        top: 10.0,
-                        right: 50.0,
-                        bottom: 50.0,
-                    };
-                    
-                    // Red square in top-right corner
-                    let red_color = D2D1_COLOR_F {
-                        r: 1.0, // Red
-                        g: 0.0,
-                        b: 0.0, 
-                        a: 1.0,
-                    };
-                    
-                    let right_edge = viewport.window_size.0 as f32;
-                    let red_square = D2D_RECT_F {
-                        left: right_edge - 50.0,
-                        top: 10.0,
-                        right: right_edge - 10.0,
-                        bottom: 50.0,
-                    };
-                    
-                    // Green square in bottom-left corner
-                    let green_color = D2D1_COLOR_F {
-                        r: 0.0,
-                        g: 1.0, // Green
-                        b: 0.0, 
-                        a: 1.0,
-                    };
-                    
-                    let bottom_edge = viewport.window_size.1 as f32;
-                    let green_square = D2D_RECT_F {
-                        left: 10.0,
-                        top: bottom_edge - 50.0,
-                        right: 50.0,
-                        bottom: bottom_edge - 10.0,
-                    };
-                    
-                    // Draw the squares
-                    let blue_brush_result = device_context.CreateSolidColorBrush(&blue_color, None);
-                    let red_brush_result = device_context.CreateSolidColorBrush(&red_color, None);
-                    let green_brush_result = device_context.CreateSolidColorBrush(&green_color, None);
-                    
-                    if let Ok(brush) = blue_brush_result {
-                        device_context.FillRectangle(&blue_square, &brush);
-                        self.log("Drew blue square at top-left");
-                    }
-                    
-                    if let Ok(brush) = red_brush_result {
-                        device_context.FillRectangle(&red_square, &brush);
-                        self.log("Drew red square at top-right");
-                    }
-                    
-                    if let Ok(brush) = green_brush_result {
-                        device_context.FillRectangle(&green_square, &brush);
-                        self.log("Drew green square at bottom-left");
-                    }
-                    
-                    // Generate D2D scene for the actual content
-                    let scene_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        self.log("Generating D2D scene...");
-                        blitz_renderer_vello::renderer::d2drender::generate_d2d_scene(
-                            &mut *device_context,
+                    // Call the blitz-renderer-vello d2drender module directly to handle the actual rendering
+                    // This is the key change - using the proper renderer instead of our custom implementation
+                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        self.log("Calling blitz-renderer-vello d2drender::generate_d2d_scene");
+                        
+                        // Use the imported d2drender module from blitz-renderer-vello
+                        d2drender::generate_d2d_scene(
+                            &mut *device_context, // Dereference to get ID2D1DeviceContext, then create a mutable reference
                             doc.as_ref(),
                             viewport.scale_f64(),
-                            viewport.window_size.0,
+                            viewport.window_size.0, 
                             viewport.window_size.1,
                             devtools,
                         );
-                        self.log("D2D scene generation completed successfully");
-                        Ok::<(), windows::core::Error>(())
-                    }));
-                    
-                    // Handle scene generation result
-                    if let Err(err) = scene_result {
-                        self.log("Error during scene generation");
-                        if let Some(s) = err.downcast_ref::<&str>() {
-                            self.log(&format!("Scene generation error: {}", s));
-                        } else if let Some(s) = err.downcast_ref::<String>() {
-                            self.log(&format!("Scene generation error: {}", s));
-                        } else {
-                            self.log("Unknown scene generation error type");
-                        }
-                        // Don't propagate the error, just log it
-                    }
-                    
-                    // Always end drawing session
-                    self.log("Ending drawing session");
-                    match device_context.EndDraw(Some(&mut tag1), Some(&mut tag2)) {
-                        Ok(_) => {
-                            self.log("EndDraw successful");
-                            Ok(())
-                        },
+                        
+                        self.log("Successfully completed d2drender::generate_d2d_scene call");
+                    })) {
+                        Ok(_) => self.log("Successfully rendered document"),
                         Err(e) => {
-                            self.log(&format!("EndDraw failed: 0x{:08X}", e.code().0));
-                            Err(e)
+                            // Handle error from the renderer
+                            if let Some(s) = e.downcast_ref::<&str>() {
+                                self.log(&format!("Renderer panicked: {}", s));
+                            } else if let Some(s) = e.downcast_ref::<String>() {
+                                self.log(&format!("Renderer panicked: {}", s));
+                            } else {
+                                self.log("Renderer panicked with unknown error");
+                            }
+                            
+                            // If the renderer fails, draw a simple fallback instead
+                            // Clear with a light blue background
+                            device_context.Clear(Some(&D2D1_COLOR_F { r: 0.9, g: 0.9, b: 1.0, a: 1.0 }));
+                            
+                            // Draw a blue rectangle to indicate we're alive but the renderer failed
+                            if let Ok(err_brush) = device_context.CreateSolidColorBrush(
+                                &D2D1_COLOR_F { r: 0.0, g: 0.4, b: 0.8, a: 1.0 },
+                                Some(&windows::Win32::Graphics::Direct2D::D2D1_BRUSH_PROPERTIES {
+                                    opacity: 1.0,
+                                    transform: windows_numerics::Matrix3x2::identity(),
+                                })) {
+                                let err_rect = windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F {
+                                    left: 20.0 * viewport.scale_f64() as f32,
+                                    top: 20.0 * viewport.scale_f64() as f32,
+                                    right: 120.0 * viewport.scale_f64() as f32,
+                                    bottom: 80.0 * viewport.scale_f64() as f32,
+                                };
+                                device_context.FillRectangle(&err_rect, &err_brush);
+                                device_context.DrawRectangle(
+                                    &err_rect, 
+                                    &err_brush,
+                                    2.0 * viewport.scale_f64() as f32,
+                                    None
+                                );
+                            }
                         }
                     }
+                    
+                    // End drawing and flush
+                    self.log("Ending draw session...");
+                    let hr = device_context.EndDraw(Some(&mut tag1), Some(&mut tag2));
+                    self.log(&format!("EndDraw result: {:?}", hr));
                 }));
                 
-                // Handle overall result
-                match draw_result {
-                    Ok(inner_result) => inner_result,
-                    Err(_) => {
-                        self.log("Panic during rendering, attempting cleanup");
-                        
-                        // Try one final EndDraw to clean up, ignore any errors
+                // Handle drawing errors
+                if let Err(err) = draw_result {
+                    self.log(&format!("Panic during rendering: {:?}", err));
+                    
+                    // Try to end the drawing session gracefully
+                    if let Err(_) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         let _ = device_context.EndDraw(Some(&mut tag1), Some(&mut tag2));
-                        
-                        Err(Error::new(E_FAIL, "Panic during rendering"))
+                    })) {
+                        self.log("Failed to clean up after drawing panic");
                     }
+                    
+                    // Return a error with the appropriate HRESULT
+                    return Err(Error::new(windows::Win32::Foundation::E_UNEXPECTED, "Unexpected error during rendering"));
                 }
             }
+            
+            Ok(())
         };
         
         // ALWAYS unset the drawing flag when we're done, regardless of success or failure
