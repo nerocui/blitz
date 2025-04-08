@@ -88,6 +88,14 @@ namespace MarkdownTest
         static private BlitzWinRT.ILogger _d2dLogger; // Strong reference to prevent GC from collecting it
         static private bool _isActive = false;
 
+        // Performance monitoring variables
+        static private long _lastPerformanceCheckTime = 0;
+        static private int _frameCount = 0;
+        static private float _currentFps = 0;
+        static private bool _showPerformanceOverlay = false; // Will be controlled by UI toggle
+        static private readonly int _fpsUpdateInterval = 500; // Update FPS display every 500ms
+        static private Dictionary<string, PerformanceMetric> _performanceMetrics = new Dictionary<string, PerformanceMetric>();
+
         public static void Initialize(IntPtr hWndMain)
         {
             _hWndMain = hWndMain;
@@ -99,10 +107,123 @@ namespace MarkdownTest
             liFreq = new LARGE_INTEGER();
             QueryPerformanceFrequency(out liFreq);
 
+            // Initialize performance metrics
+            InitializePerformanceMonitoring();
+
             HRESULT hr = CreateD2D1Factory();
             if (hr == HRESULT.S_OK)
             {
                 hr = CreateDeviceContext();
+            }
+        }
+
+        private static void InitializePerformanceMonitoring()
+        {
+            // Initialize performance tracking
+            _lastPerformanceCheckTime = GetHighPrecisionTimestamp();
+            _frameCount = 0;
+            _currentFps = 0;
+            
+            // Create metrics for key operations
+            _performanceMetrics.Clear();
+            _performanceMetrics["Render"] = new PerformanceMetric("Render");
+            _performanceMetrics["Present"] = new PerformanceMetric("Present");
+            _performanceMetrics["Tick"] = new PerformanceMetric("Tick");
+            _performanceMetrics["Total"] = new PerformanceMetric("Total");
+            
+            System.Diagnostics.Debug.WriteLine("Performance monitoring initialized");
+        }
+        
+        private static long GetHighPrecisionTimestamp()
+        {
+            LARGE_INTEGER time = new LARGE_INTEGER();
+            QueryPerformanceCounter(out time);
+            return time.QuadPart;
+        }
+        
+        private static float ConvertToMilliseconds(long start, long end)
+        {
+            return (float)((end - start) * 1000.0 / liFreq.QuadPart);
+        }
+        
+        private static void UpdatePerformanceStatistics()
+        {
+            long currentTime = GetHighPrecisionTimestamp();
+            _frameCount++;
+            
+            // Update FPS counter every update interval
+            float timeDelta = ConvertToMilliseconds(_lastPerformanceCheckTime, currentTime);
+            if (timeDelta >= _fpsUpdateInterval)
+            {
+                _currentFps = (float)(_frameCount * 1000.0 / timeDelta);
+                _lastPerformanceCheckTime = currentTime;
+                _frameCount = 0;
+                
+                // Log performance metrics periodically
+                string metricsLog = $"FPS: {_currentFps:F1}";
+                foreach (var metric in _performanceMetrics.Values)
+                {
+                    metricsLog += $", {metric.Name}: {metric.AverageTimeMs:F2}ms";
+                    metric.ResetAverages(); // Reset after logging
+                }
+                System.Diagnostics.Debug.WriteLine($"[PERF] {metricsLog}");
+            }
+        }
+        
+        private static void BeginTimeMeasure(string metricName)
+        {
+            if (_performanceMetrics.TryGetValue(metricName, out PerformanceMetric metric))
+            {
+                metric.Begin = GetHighPrecisionTimestamp();
+            }
+        }
+        
+        private static void EndTimeMeasure(string metricName)
+        {
+            if (_performanceMetrics.TryGetValue(metricName, out PerformanceMetric metric))
+            {
+                metric.End = GetHighPrecisionTimestamp();
+                metric.UpdateAverage(ConvertToMilliseconds(metric.Begin, metric.End));
+            }
+        }
+
+        // Helper class for tracking performance metrics
+        private class PerformanceMetric
+        {
+            public string Name { get; }
+            public long Begin { get; set; }
+            public long End { get; set; }
+            public float AverageTimeMs { get; private set; }
+            public float MinTimeMs { get; private set; }
+            public float MaxTimeMs { get; private set; }
+            private int _sampleCount;
+            private float _totalTimeMs;
+            
+            public PerformanceMetric(string name)
+            {
+                Name = name;
+                ResetAverages();
+            }
+            
+            public void UpdateAverage(float timeMs)
+            {
+                _totalTimeMs += timeMs;
+                _sampleCount++;
+                
+                if (timeMs < MinTimeMs || MinTimeMs == 0)
+                    MinTimeMs = timeMs;
+                
+                if (timeMs > MaxTimeMs)
+                    MaxTimeMs = timeMs;
+                
+                AverageTimeMs = _totalTimeMs / _sampleCount;
+            }
+            
+            public void ResetAverages()
+            {
+                _totalTimeMs = 0;
+                _sampleCount = 0;
+                AverageTimeMs = 0;
             }
         }
 
@@ -141,14 +262,78 @@ namespace MarkdownTest
             _swapChainPanel = swapChainPanel;
             _markdown = markdown;
             
-            var hr = CreateSwapChain(IntPtr.Zero);
+            // Initialize properly with valid dimensions before creating the swap chain
+            double initialWidth = 800;  // Default width
+            double initialHeight = 600; // Default height
+            
+            // Try to get valid dimensions before proceeding
+            if (_swapChainPanel != null)
+            {
+                // Try to determine the actual size of the panel
+                // Check ActualWidth and ActualHeight first
+                if (!double.IsNaN(_swapChainPanel.ActualWidth) && !double.IsNaN(_swapChainPanel.ActualHeight) &&
+                    _swapChainPanel.ActualWidth > 0 && _swapChainPanel.ActualHeight > 0)
+                {
+                    initialWidth = _swapChainPanel.ActualWidth;
+                    initialHeight = _swapChainPanel.ActualHeight;
+                    System.Diagnostics.Debug.WriteLine($"Using panel's ActualSize: {initialWidth}x{initialHeight}");
+                }
+                // Then try Width and Height if ActualWidth/Height are not valid
+                else if (!double.IsNaN(_swapChainPanel.Width) && !double.IsNaN(_swapChainPanel.Height) &&
+                         _swapChainPanel.Width > 0 && _swapChainPanel.Height > 0)
+                {
+                    initialWidth = _swapChainPanel.Width;
+                    initialHeight = _swapChainPanel.Height;
+                    System.Diagnostics.Debug.WriteLine($"Using panel's requested size: {initialWidth}x{initialHeight}");
+                }
+                // Try to get parent container size
+                else
+                {
+                    var parent = VisualTreeHelper.GetParent(swapChainPanel) as FrameworkElement;
+                    if (parent != null && 
+                        !double.IsNaN(parent.ActualWidth) && !double.IsNaN(parent.ActualHeight) &&
+                        parent.ActualWidth > 0 && parent.ActualHeight > 0)
+                    {
+                        initialWidth = parent.ActualWidth;
+                        initialHeight = parent.ActualHeight;
+                        System.Diagnostics.Debug.WriteLine($"Using parent container size: {initialWidth}x{initialHeight}");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"No valid size found, using default: {initialWidth}x{initialHeight}");
+                    }
+                }
+                
+                // Attach size changed event before creating swap chain
+                _swapChainPanel.SizeChanged += scpD2D_SizeChanged;
+                
+                // Also set up a loaded event to capture initial size if needed
+                _swapChainPanel.Loaded += (sender, e) => {
+                    System.Diagnostics.Debug.WriteLine($"SwapChainPanel Loaded event: ActualSize={_swapChainPanel.ActualWidth}x{_swapChainPanel.ActualHeight}");
+                    
+                    // If we now have valid dimensions and they're different from what we started with,
+                    // resize to the new dimensions
+                    if (!double.IsNaN(_swapChainPanel.ActualWidth) && !double.IsNaN(_swapChainPanel.ActualHeight) &&
+                        _swapChainPanel.ActualWidth > 0 && _swapChainPanel.ActualHeight > 0 &&
+                        (Math.Abs(_swapChainPanel.ActualWidth - initialWidth) > 1 || 
+                         Math.Abs(_swapChainPanel.ActualHeight - initialHeight) > 1))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Resizing after load to: {_swapChainPanel.ActualWidth}x{_swapChainPanel.ActualHeight}");
+                        Resize(new Size(_swapChainPanel.ActualWidth, _swapChainPanel.ActualHeight));
+                    }
+                };
+            }
+            
+            // Now create the swap chain with our validated dimensions
+            var hr = CreateSwapChain(IntPtr.Zero, (uint)initialWidth, (uint)initialHeight);
             if (hr == HRESULT.S_OK)
             {
                 hr = ConfigureSwapChain();
                 ISwapChainPanelNative panelNative = WinRT.CastExtensions.As<ISwapChainPanelNative>(swapChainPanel);
                 hr = panelNative.SetSwapChain(m_pDXGISwapChain1);
             }
-            swapChainPanel.SizeChanged += scpD2D_SizeChanged;
+            
+            // Set up the composition rendering
             CompositionTarget.Rendering += CompositionTarget_Rendering;
             
             try
@@ -179,67 +364,73 @@ namespace MarkdownTest
                         _isActive = false;
                     }
                     
-                    // Set the initial size based on the SwapChainPanel size
+                    // Set the initial size based on the verified dimensions
                     if (_isActive && _d2dRenderer != null)
                     {
-                        // Get panel size or use fallback dimensions if ActualWidth/Height are 0
-                        double width = swapChainPanel.ActualWidth;
-                        double height = swapChainPanel.ActualHeight;
+                        // Ensure size is positive and valid
+                        System.Diagnostics.Debug.WriteLine($"Resizing to {initialWidth}x{initialHeight}");
                         
-                        // If ActualWidth/Height are 0, try to use requested width/height
-                        if (width <= 0 || height <= 0)
-                        {
-                            width = swapChainPanel.Width;
-                            height = swapChainPanel.Height;
-                            System.Diagnostics.Debug.WriteLine($"Using requested size: {width}x{height}");
-                        }
+                        // CRITICAL: Wait a short time to ensure the swap chain and target are fully configured
+                        System.Threading.Thread.Sleep(50);
                         
-                        // If still 0, try to get size from parent container
-                        if (width <= 0 || height <= 0)
+                        // Check if target is ready before resizing
+                        bool targetReady = false;
+                        try
                         {
-                            var parent = VisualTreeHelper.GetParent(swapChainPanel) as FrameworkElement;
-                            if (parent != null)
+                            ID2D1Image currentTarget = null;
+                            if (m_pD2DDeviceContext != null)
                             {
-                                width = parent.ActualWidth;
-                                height = parent.ActualHeight;
-                                System.Diagnostics.Debug.WriteLine($"Using parent size: {width}x{height}");
+                                m_pD2DDeviceContext.GetTarget(out currentTarget);
+                                targetReady = (currentTarget != null);
+                                if (currentTarget != null)
+                                    SafeRelease(ref currentTarget);
                             }
                         }
-                        
-                        // If all else fails, use default minimum dimensions
-                        if (width <= 0 || height <= 0)
+                        catch (Exception ex)
                         {
-                            width = 800;
-                            height = 600;
-                            System.Diagnostics.Debug.WriteLine($"Using default size: {width}x{height}");
+                            System.Diagnostics.Debug.WriteLine($"Error checking target: {ex.Message}");
                         }
                         
-                        // Ensure size is at least 1x1 to avoid rendering errors
-                        width = Math.Max(1, width);
-                        height = Math.Max(1, height);
-                        
-                        System.Diagnostics.Debug.WriteLine($"Resizing to {width}x{height}");
-                        _d2dRenderer.Resize((uint)width, (uint)height);
-                        
-                        // Schedule an additional resize when layout is complete
-                        if (swapChainPanel.ActualWidth <= 0 || swapChainPanel.ActualHeight <= 0)
+                        if (!targetReady)
                         {
-                            swapChainPanel.Loaded += (s, e) => 
+                            System.Diagnostics.Debug.WriteLine("Target not ready, reconfiguring swap chain");
+                            hr = ConfigureSwapChain();
+                            System.Threading.Thread.Sleep(50);
+                        }
+                        
+                        // Now resize the renderer with our validated dimensions
+                        _d2dRenderer.Resize((uint)initialWidth, (uint)initialHeight);
+                        
+                        // Wait a short time before doing the initial render
+                        System.Threading.Thread.Sleep(50);
+                        
+                        // CRITICAL FIX: Check if target is valid before rendering
+                        bool canRender = false;
+                        try
+                        {
+                            ID2D1Image currentTarget = null;
+                            if (m_pD2DDeviceContext != null)
                             {
-                                if (_isActive && _d2dRenderer != null && 
-                                    swapChainPanel.ActualWidth > 0 && swapChainPanel.ActualHeight > 0)
-                                {
-                                    System.Diagnostics.Debug.WriteLine($"Post-load resize to {swapChainPanel.ActualWidth}x{swapChainPanel.ActualHeight}");
-                                    _d2dRenderer.Resize((uint)swapChainPanel.ActualWidth, (uint)swapChainPanel.ActualHeight);
-                                }
-                            };
+                                m_pD2DDeviceContext.GetTarget(out currentTarget);
+                                canRender = (currentTarget != null);
+                                if (currentTarget != null)
+                                    SafeRelease(ref currentTarget);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Error checking target before render: {ex.Message}");
                         }
                         
-                        // CRITICAL FIX: Explicitly call Render immediately after setup to initialize content
-                        if (_markdown != null)
+                        // Only attempt initial render if target is valid
+                        if (canRender && _markdown != null)
                         {
                             System.Diagnostics.Debug.WriteLine($"Explicitly calling Render with markdown content length: {_markdown.Length}");
                             Render();
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine("Skipping initial render due to NULL target - will render in next frame");
                         }
                     }
                 }
@@ -260,634 +451,7 @@ namespace MarkdownTest
             SetTheme(appTheme == ElementTheme.Dark);
         }
 
-        public static HRESULT Render()
-        {
-            HRESULT hr = HRESULT.S_OK;
-            
-            if (m_pD2DDeviceContext != null)
-            {
-                try
-                {
-                    // Instead of rendering markdown directly here, we just mark that markdown content is available
-                    // The actual rendering will happen in the CompositionTarget_Rendering method via Tick()
-                    if (_isActive && _d2dRenderer != null && _markdown != null && !_rendered)
-                    {
-                        try 
-                        {
-                            System.Diagnostics.Debug.WriteLine($"Rendering markdown content of length: {_markdown.Length}");
-                            
-                            // Add a small delay before initial render to ensure the DOM is fully initialized
-                            System.Threading.Thread.Sleep(50);
-                            
-                            _d2dRenderer.Render(_markdown);
-                            _rendered = true;
-                            
-                            // After successful render, add another small delay before ticking 
-                            // to ensure everything is properly set up
-                            System.Threading.Thread.Sleep(16);
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"Error in WinRT rendering: {ex.Message}");
-                            System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
-                            
-                            // If we get an exception during rendering, we should recreate the renderer
-                            _isActive = false;
-                            _d2dRenderer = null;
-                            GC.Collect();
-                            GC.WaitForPendingFinalizers();
-                        }
-                    }
-                    
-                    // No need to present the swap chain here as it's done in CompositionTarget_Rendering
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Render exception: {ex.Message}");
-                    hr = HRESULT.E_FAIL;
-                }
-            }
-            
-            return (hr);
-        }
-
-        private static void CompositionTarget_Rendering(object sender, object e)
-        {
-            HRESULT hr = HRESULT.S_OK;
-            
-            if (!bRender || !_isActive || _d2dRenderer == null)
-            {
-                return;
-            }
-            
-            try
-            {
-                // First, ensure we have properly configured Direct2D resources and a valid target
-                bool targetIsNull = m_pD2DTargetBitmap == null;
-                bool targetNeedsReconfiguring = targetIsNull && m_pDXGISwapChain1 != null;
-                
-                if (targetNeedsReconfiguring)
-                {
-                    // If target bitmap is missing but we have a swap chain, try to reconfigure
-                    System.Diagnostics.Debug.WriteLine("Attempting to reconfigure swap chain due to missing target bitmap");
-                    hr = ConfigureSwapChain();
-                    if (hr != HRESULT.S_OK)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Failed to reconfigure swap chain: 0x{hr:X}");
-                        // Don't attempt to render if we couldn't configure the swap chain
-                        return;
-                    }
-                    else
-                    {
-                        // Check if the target was successfully created
-                        targetIsNull = m_pD2DTargetBitmap == null;
-                        if (targetIsNull)
-                        {
-                            System.Diagnostics.Debug.WriteLine("Target bitmap is still null after reconfiguring swap chain");
-                            return;
-                        }
-                    }
-                }
-                
-                // Extra validation to prevent NULL target rendering
-                if (targetIsNull)
-                {
-                    System.Diagnostics.Debug.WriteLine("Target bitmap is null - cannot render");
-                    return; 
-                }
-                
-                // Ensure the device context has a valid target set
-                try
-                {
-                    // Set the target if we have one but it's not currently set
-                    if (m_pD2DTargetBitmap != null)
-                    {
-                        // Get the current target
-                        ID2D1Image currentTarget = null;
-                        m_pD2DDeviceContext.GetTarget(out currentTarget);
-                        
-                        bool needsTargetReset = currentTarget == null;
-                        
-                        // Clean up the current target reference
-                        if (currentTarget != null)
-                        {
-                            SafeRelease(ref currentTarget);
-                        }
-                        
-                        // Set the target if needed
-                        if (needsTargetReset)
-                        {
-                            System.Diagnostics.Debug.WriteLine("Setting the target bitmap on device context");
-                            m_pD2DDeviceContext.SetTarget(m_pD2DTargetBitmap);
-                        }
-                    }
-                }
-                catch (Exception targetEx)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Error checking/setting target: {targetEx.Message}");
-                    return;
-                }
-                
-                // Now proceed with rendering if everything is properly configured
-                bool needsPresent = false;
-
-                // For the first frame or if not yet rendered, make sure to show something
-                if (!_rendered && _d2dRenderer == null)
-                {
-                    try 
-                    {
-                        // Verify target is set before clearing
-                        ID2D1Image checkTarget = null;
-                        m_pD2DDeviceContext.GetTarget(out checkTarget);
-                        
-                        if (checkTarget != null)
-                        {
-                            // Clear with white background to give immediate visual feedback
-                            m_pD2DDeviceContext.BeginDraw();
-                            m_pD2DDeviceContext.Clear(new D2D1_COLOR_F() { r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f });
-                            
-                            UInt64 tag1 = 0, tag2 = 0;
-                            m_pD2DDeviceContext.EndDraw(out tag1, out tag2);
-                            
-                            needsPresent = true;
-                            System.Diagnostics.Debug.WriteLine("Cleared background to white");
-                            
-                            SafeRelease(ref checkTarget);
-                        }
-                        else
-                        {
-                            System.Diagnostics.Debug.WriteLine("WARNING: Cannot clear - NULL target is set");
-                            // Try one more time to set the target
-                            if (m_pD2DTargetBitmap != null)
-                            {
-                                m_pD2DDeviceContext.SetTarget(m_pD2DTargetBitmap);
-                                System.Diagnostics.Debug.WriteLine("Re-attempted to set target bitmap");
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Error during initial render clear: {ex.Message}");
-                        try { m_pD2DDeviceContext.EndDraw(out UInt64 _, out UInt64 _); } catch { }
-                    }
-                }
-                
-                // Before calling Tick, ensure the target is still valid
-                bool canTickSafely = false;
-                try
-                {
-                    ID2D1Image preTickTarget = null;
-                    m_pD2DDeviceContext.GetTarget(out preTickTarget);
-                    canTickSafely = preTickTarget != null;
-                    if (preTickTarget != null)
-                    {
-                        SafeRelease(ref preTickTarget);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Error checking target before Tick: {ex.Message}");
-                    canTickSafely = false;
-                }
-                
-                // Call Tick, which will render only if content has changed
-                if (canTickSafely)
-                {
-                    try
-                    {
-                        // Use a try-catch to handle any exceptions from Tick, including WinRT exceptions
-                        _d2dRenderer.Tick();
-                        needsPresent = true; // We should present after a successful Tick
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Exception in Tick: {ex.Message}");
-                        
-                        // If we hit a D2D error about NULL target, try to recover
-                        if (ex.Message.Contains("NULL target"))
-                        {
-                            System.Diagnostics.Debug.WriteLine("Attempting to recover from NULL target error");
-                            // Try to reset target and reconfigure
-                            if (m_pD2DDeviceContext != null)
-                            {
-                                m_pD2DDeviceContext.SetTarget(null);
-                                SafeRelease(ref m_pD2DTargetBitmap);
-                                hr = ConfigureSwapChain();
-                                if (hr == HRESULT.S_OK)
-                                {
-                                    System.Diagnostics.Debug.WriteLine("Successfully reconfigured after NULL target error");
-                                }
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine("Skipping Tick due to NULL target");
-                }
-                
-                // Only present if we have a valid swap chain and performed some rendering
-                if (needsPresent && m_pDXGISwapChain1 != null)
-                {
-                    // One final check to ensure target is set before presenting
-                    try
-                    {
-                        ID2D1Image finalTarget = null;
-                        m_pD2DDeviceContext.GetTarget(out finalTarget);
-                        
-                        if (finalTarget != null)
-                        {
-                            SafeRelease(ref finalTarget);
-                            hr = m_pDXGISwapChain1.Present(1, 0); // Use vsync (1) for smoother rendering
-                            
-                            if (hr == HRESULT.S_OK)
-                            {
-                                _rendered = true;
-                            }
-                            else if ((uint)hr == D2DTools.D2DERR_RECREATE_TARGET)
-                            {
-                                System.Diagnostics.Debug.WriteLine("Need to recreate rendering target");
-                                if (m_pD2DDeviceContext != null)
-                                    m_pD2DDeviceContext.SetTarget(null);
-                                
-                                SafeRelease(ref m_pD2DTargetBitmap);
-                                
-                                hr = CreateSwapChain(IntPtr.Zero);
-                                if (hr == HRESULT.S_OK)
-                                {
-                                    hr = ConfigureSwapChain();
-                                    _rendered = false;
-                                }
-                            }
-                            else
-                            {
-                                System.Diagnostics.Debug.WriteLine($"Present failed with HRESULT: 0x{hr:X}");
-                            }
-                        }
-                        else
-                        {
-                            System.Diagnostics.Debug.WriteLine("Skipping Present due to NULL target");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Error during final target check or present: {ex.Message}");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error in CompositionTarget_Rendering: {ex.Message} (0x{ex.HResult:X8})");
-                
-                // Try to recover from specific D2D errors
-                if (ex.HResult == unchecked((int)0xEE093000) || 
-                    ex.HResult == unchecked((int)0xC994A000) ||
-                    ex.HResult == unchecked((int)0x88990011) || // DXGI_ERROR_DEVICE_REMOVED
-                    ex.HResult == unchecked((int)0x8077C548))   // D2D error code from log
-                {
-                    try
-                    {
-                        System.Diagnostics.Debug.WriteLine("Attempting to recover from D2D error");
-                        
-                        // Set target to null before releasing bitmap
-                        if (m_pD2DDeviceContext != null)
-                            m_pD2DDeviceContext.SetTarget(null);
-                            
-                        SafeRelease(ref m_pD2DTargetBitmap);
-                        
-                        // Wait a bit before recreating resources
-                        System.Threading.Thread.Sleep(50);
-                        
-                        if (m_pDXGISwapChain1 != null)
-                        {
-                            hr = ConfigureSwapChain();
-                            if (hr == HRESULT.S_OK)
-                            {
-                                System.Diagnostics.Debug.WriteLine("Resource recovery successful");
-                                _rendered = false; // Force a redraw
-                            }
-                        }
-                    }
-                    catch (Exception recovery_ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Recovery failed: {recovery_ex.Message}");
-                        _isActive = false;
-                    }
-                }
-                else
-                {
-                    // For other errors, deactivate the renderer
-                    System.Diagnostics.Debug.WriteLine($"Deactivating renderer due to unrecoverable error: 0x{ex.HResult:X8}");
-                    _isActive = false;
-                }
-            }
-        }
-
-        public static void UnloadPage()
-        {
-            // Disconnect event handlers
-            if (_swapChainPanel != null)
-            {
-                _swapChainPanel.SizeChanged -= scpD2D_SizeChanged;
-                CompositionTarget.Rendering -= CompositionTarget_Rendering;
-            }
-            
-            // First suspend the renderer to avoid any rendering while we're cleaning up
-            if (_isActive && _d2dRenderer != null)
-            {
-                try
-                {
-                    _d2dRenderer.Suspend();
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Error suspending D2DRenderer: {ex.Message}");
-                }
-            }
-            
-            // Release the WinRT D2DRenderer
-            if (_d2dRenderer != null)
-            {
-                // Clear the references
-                _d2dRenderer = null;
-                _d2dLogger = null; // Clear the logger reference as well
-                _isActive = false;
-                
-                // Force garbage collection to release COM resources
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
-            }
-            
-            // Reset state variables
-            _swapChainPanel = null;
-            _markdown = null;
-            _rendered = false;
-            
-            // Clear Direct2D resources to ensure clean slate for next page
-            if (m_pD2DDeviceContext != null)
-            {
-                // Need to set the target to null before releasing bitmap
-                m_pD2DDeviceContext.SetTarget(null);
-            }
-            
-            SafeRelease(ref m_pD2DTargetBitmap);
-            
-            // Release swapchain last, after ensuring no references remain
-            if (m_pDXGISwapChain1 != null)
-            {
-                // Release outstanding buffer references by presenting with DXGI_PRESENT_DO_NOT_WAIT flag
-                // This flag will discard the current frame without waiting, which effectively
-                // releases references to the swapchain buffers
-                try
-                {
-                    m_pDXGISwapChain1.Present(0, DXGITools.DXGI_PRESENT_DO_NOT_WAIT);
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Error discarding swapchain buffers: {ex.Message}");
-                }
-                
-                SafeRelease(ref m_pDXGISwapChain1);
-            }
-            
-            // Final GC to ensure everything is cleaned up
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-        }
-
-        public static HRESULT Resize(Size sz)
-        {
-            HRESULT hr = HRESULT.S_OK;
-
-            if (m_pDXGISwapChain1 != null)
-            {
-                // Get original swap chain dimensions for debugging
-                DXGI_SWAP_CHAIN_DESC1 origDesc = new DXGI_SWAP_CHAIN_DESC1();
-                try
-                {
-                    hr = m_pDXGISwapChain1.GetDesc1(out origDesc);
-                    if (hr == HRESULT.S_OK)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[DEBUG] Resize: Original swap chain dimensions: {origDesc.Width}x{origDesc.Height}");
-                        System.Diagnostics.Debug.WriteLine($"[DEBUG] Resize: Requested dimensions: {sz.Width}x{sz.Height}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[DEBUG] Error getting swap chain description: {ex.Message}");
-                }
-
-                System.Diagnostics.Debug.WriteLine($"[DEBUG] Resizing to {sz.Width}x{sz.Height}");
-
-                // Properly release all buffer references before resizing
-                try
-                {
-                    // First, set D2D target to null
-                    if (m_pD2DDeviceContext != null)
-                    {
-                        try
-                        {
-                            m_pD2DDeviceContext.SetTarget(null);
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[DEBUG] Error clearing target in Resize: {ex.Message}");
-                        }
-                    }
-
-                    // Release D2D target bitmap
-                    if (m_pD2DTargetBitmap != null)
-                    {
-                        SafeRelease(ref m_pD2DTargetBitmap);
-                    }
-
-                    // Force a present to flush any pending operations
-                    try
-                    {
-                        m_pDXGISwapChain1.Present(0, DXGITools.DXGI_PRESENT_DO_NOT_WAIT);
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[DEBUG] Non-critical error during buffer flush: {ex.Message}");
-                    }
-
-                    // Force GC to clean up any references that might be held by the runtime
-                    GC.Collect();
-                    GC.WaitForPendingFinalizers();
-                    
-                    // Wait a small amount of time to ensure GPU operations complete
-                    System.Threading.Thread.Sleep(50);
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[DEBUG] Exception during pre-resize cleanup: {ex.Message}");
-                }
-
-                if (sz.Width > 0 && sz.Height > 0) // Changed from != 0 to > 0 to be more explicit
-                {
-                    try
-                    {
-                        hr = m_pDXGISwapChain1.ResizeBuffers(
-                            2,
-                            (uint)sz.Width,
-                            (uint)sz.Height,
-                            DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM,
-                            0
-                        );
-
-                        System.Diagnostics.Debug.WriteLine($"[DEBUG] ResizeBuffers result: 0x{hr:X}");
-
-                        // If buffer references still exist, try more aggressive cleanup
-                        if ((uint)hr == 0x887A0001) // DXGI_ERROR_INVALID_CALL (buffer references exist)
-                        {
-                            System.Diagnostics.Debug.WriteLine("[DEBUG] Buffer references still exist, attempting more aggressive cleanup");
-                            
-                            // Release everything
-                            if (m_pD2DDeviceContext != null)
-                            {
-                                m_pD2DDeviceContext.SetTarget(null);
-                            }
-                            SafeRelease(ref m_pD2DTargetBitmap);
-                            
-                            // Force another GC cycle
-                            GC.Collect();
-                            GC.WaitForPendingFinalizers();
-                            System.Threading.Thread.Sleep(100);
-                            
-                            // Try resize again
-                            hr = m_pDXGISwapChain1.ResizeBuffers(
-                                2,
-                                (uint)sz.Width,
-                                (uint)sz.Height,
-                                DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM,
-                                0
-                            );
-                            
-                            System.Diagnostics.Debug.WriteLine($"[DEBUG] ResizeBuffers second attempt result: 0x{hr:X}");
-                            
-                            // If still failing, recreate the swap chain
-                            if (hr != HRESULT.S_OK)
-                            {
-                                System.Diagnostics.Debug.WriteLine("[DEBUG] Recreating swap chain due to persistent buffer references");
-                                SafeRelease(ref m_pDXGISwapChain1);
-                                
-                                hr = CreateSwapChain(IntPtr.Zero);
-                                if (hr == HRESULT.S_OK)
-                                {
-                                    System.Diagnostics.Debug.WriteLine("[DEBUG] Successfully recreated swap chain");
-                                }
-                                else
-                                {
-                                    System.Diagnostics.Debug.WriteLine($"[DEBUG] Failed to recreate swap chain: 0x{hr:X}");
-                                    return hr;
-                                }
-                            }
-                        }
-
-                        // Verify the resize was successful by checking the new dimensions
-                        DXGI_SWAP_CHAIN_DESC1 newDesc = new DXGI_SWAP_CHAIN_DESC1();
-                        hr = m_pDXGISwapChain1.GetDesc1(out newDesc);
-                        if (hr == HRESULT.S_OK)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[DEBUG] After resize: New swap chain dimensions: {newDesc.Width}x{newDesc.Height}");
-                            if (newDesc.Width != sz.Width || newDesc.Height != sz.Height)
-                            {
-                                System.Diagnostics.Debug.WriteLine($"[DEBUG] WARNING: Actual swap chain size differs from requested size!");
-                            }
-                        }
-                        
-                        // Also notify the WinRT renderer about the size change
-                        if (_isActive && _d2dRenderer != null)
-                        {
-                            try
-                            {
-                                System.Diagnostics.Debug.WriteLine($"[DEBUG] Notifying D2DRenderer of size change: {sz.Width}x{sz.Height}");
-                                _d2dRenderer.Resize((uint)sz.Width, (uint)sz.Height);
-                                System.Diagnostics.Debug.WriteLine($"[DEBUG] D2DRenderer resize completed successfully");
-                            }
-                            catch (Exception ex)
-                            {
-                                System.Diagnostics.Debug.WriteLine($"Error resizing D2DRenderer: {ex.Message}");
-                                _isActive = false;
-                                _d2dRenderer = null;
-                                GC.Collect();
-                                GC.WaitForPendingFinalizers();
-                            }
-                        }
-                        else
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[DEBUG] Cannot resize D2DRenderer: _isActive={_isActive}, _d2dRenderer is {(_d2dRenderer == null ? "null" : "valid")}");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[DEBUG] Exception during ResizeBuffers: {ex.Message}");
-                        hr = HRESULT.E_FAIL;
-                    }
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine($"[DEBUG] Skipping resize due to invalid dimensions: {sz.Width}x{sz.Height}");
-                }
-                
-                // Reconfigure swap chain with new dimensions
-                hr = ConfigureSwapChain();
-                if (hr != HRESULT.S_OK)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[DEBUG] ConfigureSwapChain failed after resize: 0x{hr:X}");
-                }
-            }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine("[DEBUG] Cannot resize: swap chain is null");
-            }
-            
-            return hr;
-        }
-
-        public static HRESULT CreateDeviceContext()
-        {
-            HRESULT hr = HRESULT.S_OK;
-            uint creationFlags = (uint)D3D11_CREATE_DEVICE_FLAG.D3D11_CREATE_DEVICE_BGRA_SUPPORT;
-
-            // Needs "Enable native code Debugging"
-#if DEBUG
-            creationFlags |= (uint)D3D11_CREATE_DEVICE_FLAG.D3D11_CREATE_DEVICE_DEBUG;
-#endif
-
-            int[] aD3D_FEATURE_LEVEL = new int[] { (int)D3D_FEATURE_LEVEL.D3D_FEATURE_LEVEL_11_1, (int)D3D_FEATURE_LEVEL.D3D_FEATURE_LEVEL_11_0,
-                    (int)D3D_FEATURE_LEVEL.D3D_FEATURE_LEVEL_10_1, (int)D3D_FEATURE_LEVEL.D3D_FEATURE_LEVEL_10_0, (int)D3D_FEATURE_LEVEL.D3D_FEATURE_LEVEL_9_3,
-                    (int)D3D_FEATURE_LEVEL.D3D_FEATURE_LEVEL_9_2, (int)D3D_FEATURE_LEVEL.D3D_FEATURE_LEVEL_9_1};
-
-            D3D_FEATURE_LEVEL featureLevel;
-            hr = D2DTools.D3D11CreateDevice(null,    // specify null to use the default adapter
-                D3D_DRIVER_TYPE.D3D_DRIVER_TYPE_HARDWARE,
-                IntPtr.Zero,
-                creationFlags,              
-                aD3D_FEATURE_LEVEL,
-                (uint)aD3D_FEATURE_LEVEL.Length,
-                D2DTools.D3D11_SDK_VERSION,
-                out m_pD3D11DevicePtr,                   
-                out featureLevel,           
-                out m_pD3D11DeviceContext
-            );
-            if (hr == HRESULT.S_OK)
-            {
-                m_pDXGIDevice = Marshal.GetObjectForIUnknown(m_pD3D11DevicePtr) as IDXGIDevice1;
-                if (m_pD2DFactory1 != null)
-                {
-                    hr = m_pD2DFactory1.CreateDevice(m_pDXGIDevice, out m_pD2DDevice);
-                    if (hr == HRESULT.S_OK)
-                    {
-                        hr = m_pD2DDevice.CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS.D2D1_DEVICE_CONTEXT_OPTIONS_NONE, out m_pD2DDeviceContext);
-                        SafeRelease(ref m_pD2DDevice);
-                    }
-                }
-            }
-            return hr;
-        }
-
-        public static HRESULT CreateSwapChain(IntPtr hWnd)
+        public static HRESULT CreateSwapChain(IntPtr hWnd, uint requestedWidth = 0, uint requestedHeight = 0)
         {
             HRESULT hr = HRESULT.S_OK;
             
@@ -922,45 +486,47 @@ namespace MarkdownTest
             }
             
             // Get panel dimensions if available - ALWAYS use the largest possible valid dimensions
-            uint width = 1;
-            uint height = 1;
+            uint width = 800;  // Default
+            uint height = 600; // Default
             
-            if (_swapChainPanel != null)
+            // If explicit dimensions are provided, use them
+            if (requestedWidth > 0 && requestedHeight > 0)
+            {
+                width = requestedWidth;
+                height = requestedHeight;
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Creating SwapChain with explicit dimensions: {width}x{height}");
+            }
+            else if (_swapChainPanel != null)
             {
                 // Use actual dimensions or reasonable defaults if they're too small
-                width = (uint)Math.Max(100, _swapChainPanel.ActualWidth);
-                height = (uint)Math.Max(100, _swapChainPanel.ActualHeight);
-                System.Diagnostics.Debug.WriteLine($"[DEBUG] Creating SwapChain with panel dimensions: {width}x{height}");
-                
+                // Make sure to check for NaN before using values
+                if (!double.IsNaN(_swapChainPanel.ActualWidth) && !double.IsNaN(_swapChainPanel.ActualHeight) &&
+                    _swapChainPanel.ActualWidth > 0 && _swapChainPanel.ActualHeight > 0)
+                {
+                    width = (uint)Math.Max(100, _swapChainPanel.ActualWidth);
+                    height = (uint)Math.Max(100, _swapChainPanel.ActualHeight);
+                    System.Diagnostics.Debug.WriteLine($"[DEBUG] Creating SwapChain with panel dimensions: {width}x{height}");
+                }
                 // If for some reason the SwapChainPanel has zero dimensions,
                 // try to use the parent window's dimensions if available
-                if (width <= 1 || height <= 1)
+                else if (_hWndMain != IntPtr.Zero)
                 {
-                    if (_hWndMain != IntPtr.Zero)
+                    RECT rect = new RECT();
+                    if (GetClientRect(_hWndMain, ref rect))
                     {
-                        RECT rect = new RECT();
-                        if (GetClientRect(_hWndMain, ref rect))
-                        {
-                            width = (uint)Math.Max(100, rect.right - rect.left);
-                            height = (uint)Math.Max(100, rect.bottom - rect.top);
-                            System.Diagnostics.Debug.WriteLine($"[DEBUG] Using window dimensions instead: {width}x{height}");
-                        }
+                        width = (uint)Math.Max(100, rect.right - rect.left);
+                        height = (uint)Math.Max(100, rect.bottom - rect.top);
+                        System.Diagnostics.Debug.WriteLine($"[DEBUG] Using window dimensions instead: {width}x{height}");
                     }
-                    
-                    // If we still don't have valid dimensions, use reasonable defaults
-                    if (width <= 1 || height <= 1)
-                    {
-                        width = 800;
-                        height = 600;
-                        System.Diagnostics.Debug.WriteLine($"[DEBUG] Using default dimensions: {width}x{height}");
-                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[DEBUG] Using default dimensions: {width}x{height}");
                 }
             }
             else
             {
                 // If no panel is available, use default dimensions
-                width = 800;
-                height = 600;
                 System.Diagnostics.Debug.WriteLine($"[DEBUG] SwapChainPanel is null, using default size: {width}x{height}");
             }
             
@@ -1244,10 +810,14 @@ namespace MarkdownTest
                                     // Recreate with explicit dimensions from the panel
                                     hr = CreateSwapChain(IntPtr.Zero);
                                     
-                                    if (hr == HRESULT.S_OK)
+                                    if (hr != HRESULT.S_OK)
                                     {
-                                        System.Diagnostics.Debug.WriteLine("[DEBUG] Successfully recreated swap chain after bitmap failure");
-                                        // Don't continue further in this call, we'll configure in the next frame
+                                        System.Diagnostics.Debug.WriteLine($"[DEBUG] Failed to recreate swap chain: 0x{hr:X}");
+                                        return hr;
+                                    }
+                                    else
+                                    {
+                                        System.Diagnostics.Debug.WriteLine("[DEBUG] Successfully recreated swap chain");
                                     }
                                 }
                             }
@@ -1536,6 +1106,29 @@ namespace MarkdownTest
                 }
             }
         }
+
+        // Public method to toggle performance overlay visibility
+        public static void TogglePerformanceOverlay()
+        {
+            _showPerformanceOverlay = !_showPerformanceOverlay;
+            System.Diagnostics.Debug.WriteLine($"Performance overlay {(_showPerformanceOverlay ? "enabled" : "disabled")}");
+        }
+        
+        // Method to get performance data as a formatted string for external display
+        public static string GetPerformanceData()
+        {
+            string result = $"FPS: {_currentFps:F1}\n";
+            
+            foreach (var metric in _performanceMetrics.Values)
+            {
+                result += $"{metric.Name}: {metric.AverageTimeMs:F2}ms (Min: {metric.MinTimeMs:F2}ms, Max: {metric.MaxTimeMs:F2}ms)\n";
+            }
+            
+            return result;
+        }
+
+        [DllImport("Kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        public static extern bool QueryPerformanceCounter(out LARGE_INTEGER lpPerformanceCount);
 
         #endregion
     }

@@ -5,6 +5,8 @@ using Windows.System;
 using Microsoft.UI.Xaml; // Add UIElement reference
 using Microsoft.UI.Input; // For InputKeyboardSource
 using Windows.UI.Core; // For CoreVirtualKeyStates enum
+using System;
+using Microsoft.UI.Dispatching; // For DispatcherQueue timer
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -16,14 +18,37 @@ namespace MarkdownTest;
 /// </summary>
 public sealed partial class MarkdownPage : Page
 {
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer _fpsUpdateTimer;
+
     public MarkdownPage()
     {
         this.InitializeComponent();
         this.Loaded += MarkdownPage_Loaded;
+        
+        // Create a timer to update FPS display
+        _fpsUpdateTimer = DispatcherQueue.CreateTimer();
+        _fpsUpdateTimer.Interval = TimeSpan.FromMilliseconds(500);
+        _fpsUpdateTimer.Tick += FpsUpdateTimer_Tick;
+    }
+
+    private void FpsUpdateTimer_Tick(object sender, object e)
+    {
+        // Update performance info
+        tbPerf.Text = D2DContext.GetPerformanceData();
     }
 
     private void MarkdownPage_Loaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
+        // Set initial size - make sure we have enough space for rendering
+        if (double.IsNaN(scpD2D.Width) || scpD2D.Width <= 0)
+        {
+            scpD2D.Width = 800;
+        }
+        if (double.IsNaN(scpD2D.Height) || scpD2D.Height <= 0)
+        {
+            scpD2D.Height = 600;
+        }
+        
         // Focus the SwapChainPanel to receive keyboard input
         scpD2D.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
         scpD2D.KeyDown += ScpD2D_KeyDown;
@@ -35,6 +60,9 @@ public sealed partial class MarkdownPage : Page
         scpD2D.PointerWheelChanged += ScpD2D_PointerWheelChanged;
         scpD2D.LostFocus += ScpD2D_LostFocus;
         scpD2D.GotFocus += ScpD2D_GotFocus;
+        
+        // Start the FPS update timer
+        _fpsUpdateTimer.Start();
     }
 
     private void ScpD2D_GotFocus(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
@@ -121,6 +149,10 @@ public sealed partial class MarkdownPage : Page
     {
         base.OnNavigatedTo(e);
         
+        // Ensure we have size before setting up rendering
+        if (double.IsNaN(scpD2D.Width) || scpD2D.Width <= 0) scpD2D.Width = 800;
+        if (double.IsNaN(scpD2D.Height) || scpD2D.Height <= 0) scpD2D.Height = 600;
+        
         // Use a simple but highly visible test markdown pattern
         string markdown = @"# Test Markdown Rendering
 
@@ -167,7 +199,25 @@ Testing 1, 2, 3...";
         scpD2D.LostFocus -= ScpD2D_LostFocus;
         scpD2D.GotFocus -= ScpD2D_GotFocus;
         
+        // Stop the timer
+        _fpsUpdateTimer.Stop();
+        
         base.OnNavigatedFrom(e);
         D2DContext.UnloadPage();
+    }
+
+    // Toggle performance overlay visibility
+    private void BtnTogglePerf_Click(object sender, RoutedEventArgs e)
+    {
+        if (perfPanel.Visibility == Visibility.Visible)
+        {
+            perfPanel.Visibility = Visibility.Collapsed;
+            btnTogglePerf.Content = "Show Performance";
+        }
+        else
+        {
+            perfPanel.Visibility = Visibility.Visible;
+            btnTogglePerf.Content = "Hide Performance";
+        }
     }
 }
