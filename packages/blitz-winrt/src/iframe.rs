@@ -13,8 +13,8 @@ use blitz_traits::net::DummyNetProvider;
 use blitz_traits::navigation::DummyNavigationProvider;
 use keyboard_types::{Code, Key, Location, Modifiers};
 
-use windows::Win32::Graphics::Direct2D::Common::D2D1_COLOR_F;
-use windows::Win32::Graphics::Direct2D::*;
+use windows::Win32::Graphics::Direct2D::Common::{D2D1_COLOR_F, D2D_RECT_F};
+use windows::Win32::Graphics::Direct2D::{ID2D1DeviceContext};
 use windows::core::*;
 use windows::Win32::Foundation::E_FAIL; // Import the E_FAIL constant
 
@@ -165,11 +165,19 @@ impl IFrame {
     pub fn log(&self, message: &str) {
         if let Some(logger) = self.logger.borrow().as_ref() {
             // Use catch_unwind to prevent panics in logging from crashing the app
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                // First try to write to stdout for debugging (mostly for development, not seen by C#)
+                println!("[IFRAME] {}", message);
+                
                 // Convert the &str to an HSTRING before passing to LogMessage
                 let hstring_message = windows::core::HSTRING::from(message);
-                let _ = logger.LogMessage(&hstring_message);
+                logger.LogMessage(&hstring_message)
             }));
+            
+            if let Err(_) = result {
+                // If logging itself panics, print to stdout as a last resort
+                println!("[IFRAME ERROR] Panic while trying to log: {}", message);
+            }
         } else {
             // Fall back to println if no logger is available
             println!("[IFRAME] {}", message);
@@ -178,10 +186,12 @@ impl IFrame {
     
     /// Loads and renders markdown content
     pub fn render_markdown(&self, content: &str) -> Result<()> {
-        let mut html = content.to_string();
+        // Log the attempt to render markdown
+        self.log(&format!("render_markdown called with content length: {}", content.len()));
+        
+        let html = markdown_to_html(content.to_string());
         let mut stylesheets = Vec::new();
         
-        html = markdown_to_html(html);
         stylesheets.push(String::from(GITHUB_MD_STYLES));
         stylesheets.push(String::from(BLITZ_MD_STYLES));
 
@@ -203,14 +213,21 @@ impl IFrame {
             doc.as_mut().set_viewport(viewport.clone());
         }
         doc.as_mut().resolve();
+        
+        // Update our document
         *self.doc.borrow_mut() = doc;
         *self.content_initialized.borrow_mut() = true;
         
-        // Force rendering by setting needs_render directly
+        // Force an immediate render
         *self.needs_render.borrow_mut() = true;
+        self.log("Document updated, forcing render");
         
-        // Signal that we want to render, but don't actually render yet
-        // The actual rendering will happen in render_if_needed
+        // Perform immediate render to avoid flashing
+        match self.render_if_needed() {
+            Ok(_) => self.log("Initial render of markdown content successful"),
+            Err(e) => self.log(&format!("Initial render failed: {:?}", e)),
+        }
+        
         Ok(())
     }
     
@@ -259,12 +276,18 @@ impl IFrame {
             // Calculate DOM position (adjusted for scroll) - Use scoped access to avoid holding locks across function calls
             let doc_ref = match self.doc.try_borrow() {
                 Ok(doc) => doc,
-                Err(_) => return Ok(()), // If we can't borrow the document, just return without doing anything
+                Err(_) => {
+                    self.log("Error: Could not borrow document in pointer_moved");
+                    return Ok(())
+                }
             };
             
             let viewport = match self.viewport.try_lock() {
                 Ok(v) => v,
-                Err(_) => return Ok(()),
+                Err(_) => {
+                    self.log("Error: Could not lock viewport in pointer_moved");
+                    return Ok(())
+                }
             };
             
             let viewport_scroll = doc_ref.as_ref().viewport_scroll();
@@ -278,7 +301,10 @@ impl IFrame {
         let should_render = {
             let mut doc = match self.doc.try_borrow_mut() {
                 Ok(doc) => doc,
-                Err(_) => return Ok(()),
+                Err(_) => {
+                    self.log("Error: Could not borrow document for updating hover state");
+                    return Ok(())
+                }
             };
             
             // Catch any potential panic in set_hover_to
@@ -287,7 +313,7 @@ impl IFrame {
             })) {
                 Ok(result) => result,
                 Err(_) => {
-                    println!("Panic in set_hover_to");
+                    self.log("Panic in set_hover_to");
                     false
                 }
             };
@@ -310,7 +336,7 @@ impl IFrame {
                 if let Err(_) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     doc.handle_event(&mut event);
                 })) {
-                    println!("Panic in handle_event for MouseMove");
+                    self.log("Panic in handle_event for MouseMove");
                 }
             }
             
@@ -321,7 +347,7 @@ impl IFrame {
         if should_render {
             match self.render() {
                 Ok(_) => (),
-                Err(e) => println!("Error in render: {:?}", e),
+                Err(e) => self.log(&format!("Error in render: {:?}", e)),
             }
         }
         
@@ -343,7 +369,7 @@ impl IFrame {
         
         // Update pointer position first - safely handling errors
         if let Err(e) = self.pointer_moved(x, y) {
-            println!("Error in pointer_moved during pressed: {:?}", e);
+            self.log(&format!("Error in pointer_moved during pressed: {:?}", e));
         }
         
         // Update button state
@@ -356,14 +382,17 @@ impl IFrame {
         {
             let mut doc = match self.doc.try_borrow_mut() {
                 Ok(doc) => doc,
-                Err(_) => return Ok(()),
+                Err(_) => {
+                    self.log("Error: Could not borrow document in pointer_pressed");
+                    return Ok(())
+                }
             };
             
             // Catch any potential panic
             if let Err(_) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 doc.as_mut().active_node();
             })) {
-                println!("Panic in active_node");
+                self.log("Panic in active_node");
                 return Ok(());
             }
             
@@ -384,7 +413,7 @@ impl IFrame {
                         }),
                     ));
                 })) {
-                    println!("Panic in handle_event for MouseDown");
+                    self.log("Panic in handle_event for MouseDown");
                 }
                 
                 *self.mouse_down_node.borrow_mut() = Some(node_id);
@@ -409,7 +438,7 @@ impl IFrame {
         
         // Update pointer position first - safely handling errors
         if let Err(e) = self.pointer_moved(x, y) {
-            println!("Error in pointer_moved during released: {:?}", e);
+            self.log(&format!("Error in pointer_moved during released: {:?}", e));
             // Continue execution even if pointer_moved fails
         }
         
@@ -430,7 +459,7 @@ impl IFrame {
             if let Err(_) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 doc.as_mut().unactive_node();
             })) {
-                println!("Panic in unactive_node");
+                self.log("Panic in unactive_node");
                 return self.render();
             }
             
@@ -451,7 +480,7 @@ impl IFrame {
                         }),
                     ));
                 })) {
-                    println!("Panic in handle_event for MouseUp");
+                    self.log("Panic in handle_event for MouseUp");
                 }
                 
                 // Handle click if this is the same node where mouse down occurred
@@ -474,7 +503,7 @@ impl IFrame {
                 };
                 
                 if let Err(e) = click_result {
-                    println!("Error in click handler: {:?}", e);
+                    self.log(&format!("Error in click handler: {:?}", e));
                 }
             }
             
@@ -482,7 +511,7 @@ impl IFrame {
         };
         
         if let Err(e) = result {
-            println!("Error in pointer_released: {:?}", e);
+            self.log(&format!("Error in pointer_released: {:?}", e));
         }
         
         *self.mouse_down_node.borrow_mut() = None;
@@ -534,7 +563,7 @@ impl IFrame {
         }));
         
         if let Err(_) = result {
-            println!("Panic in mouse_wheel handler");
+            self.log("Panic in mouse_wheel handler");
         }
         
         self.render()
@@ -574,7 +603,7 @@ impl IFrame {
         }));
         
         if let Err(_) = result {
-            println!("Panic in text_input handler");
+            self.log("Panic in text_input handler");
         }
         
         self.render()
@@ -665,6 +694,13 @@ impl IFrame {
             return Ok(());
         }
         
+        // Check if drawing is already in progress
+        if *self.drawing_in_progress.borrow() {
+            // If drawing is already in progress, don't try to render again
+            self.log("Drawing already in progress, skipping render");
+            return Ok(());
+        }
+        
         // Acquire an exclusive lock on the device context to prevent multiple threads
         // from rendering simultaneously
         let _device_lock = match self.device_context_lock.try_lock() {
@@ -676,187 +712,260 @@ impl IFrame {
             }
         };
         
-        // Check if drawing is already in progress
-        if *self.drawing_in_progress.borrow() {
-            // If drawing is already in progress, don't try to render again
-            self.log("Drawing already in progress, skipping render");
-            return Ok(());
-        }
-
         // Reset needs_render flag
         *self.needs_render.borrow_mut() = false;
         
-        let doc = match self.doc.try_borrow() {
-            Ok(doc) => doc,
-            Err(_) => {
-                self.log("Could not borrow document for rendering");
-                return Ok(());
-            }
-        };
-        
-        let viewport = match self.viewport.try_lock() {
-            Ok(v) => v,
-            Err(_) => {
-                self.log("Could not lock viewport for rendering");
-                return Ok(());
-            }
-        };
-        
-        let devtools = self.devtools.borrow().clone();
-
-        // Skip rendering if viewport dimensions are invalid
-        if viewport.window_size.0 == 0 || viewport.window_size.1 == 0 {
-            self.log(&format!("Invalid viewport dimensions: {}x{}", viewport.window_size.0, viewport.window_size.1));
-            return Ok(());
-        }
-        
-        // Now try to borrow the device context
-        let mut device_context = match self.device_context.try_borrow_mut() {
-            Ok(ctx) => ctx,
-            Err(_) => {
-                // If we can't borrow the device context, mark that we need to render again later
-                *self.needs_render.borrow_mut() = true;
-                self.log("Could not borrow device context for rendering");
-                return Ok(());
-            }
-        };
-
-        // Set drawing in progress flag
+        // Set drawing in progress flag BEFORE we acquire any resources
         *self.drawing_in_progress.borrow_mut() = true;
         
-        // Check if D2D is already drawing, and if so, end the previous draw first
-        let mut tag1: u64 = 0;
-        let mut tag2: u64 = 0;
-        
-        // Instead of using a non-existent CheckWindowState method, we'll try to
-        // detect active drawing sessions using a safer approach
-        unsafe {
-            // Try to end any potentially existing drawing session
-            // If no drawing session exists, this will fail with D2DERR_WRONG_STATE
-            // which is fine - we can safely ignore that error
-            self.log("Checking for active drawing session...");
-            
-            let end_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let end_hr = device_context.EndDraw(Some(&mut tag1), Some(&mut tag2));
-                if end_hr.is_ok() {
-                    self.log("Found and ended previous drawing session");
-                    true // Indicates we found an active session
-                } else {
-                    // This is the expected case when no drawing is in progress
-                    self.log("No active drawing session detected");
-                    false
-                }
-            }));
-            
-            // Handle the result, ignoring panics (just means no session was active)
-            let had_previous_drawing = match end_result {
-                Ok(found_session) => found_session,
+        // Create a scope to ensure we always unset the drawing flag when done
+        let result = {
+            let doc = match self.doc.try_borrow() {
+                Ok(doc) => doc,
                 Err(_) => {
-                    self.log("Error checking for drawing session, assuming none active");
-                    false
+                    self.log("Could not borrow document for rendering");
+                    *self.drawing_in_progress.borrow_mut() = false;
+                    return Ok(());
                 }
             };
             
-            // If we had a previous drawing session, wait a bit before starting a new one
-            if had_previous_drawing {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-        }
-        
-        self.log("Starting D2D rendering process");
-        self.log(&format!("Viewport size: {}x{}", viewport.window_size.0, viewport.window_size.1));
-        self.log(&format!("Scale factor: {}", viewport.scale_f64()));
-        
-        // Use this scope to ensure we properly handle results and reset flags
-        let render_result: windows::core::Result<()> = unsafe {
-            // Make sure the device context is not in a bad state
-            let mut tag1: u64 = 0;
-            let mut tag2: u64 = 0;
-
-            // Always catch any potential panic that could happen during BeginDraw/EndDraw
-            let draw_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                // Start fresh with a new BeginDraw - BeginDraw returns void, not a Result
-                device_context.BeginDraw();
-                self.log("BeginDraw called successfully");
-                
-                // Clear background with white (fully opaque)
-                device_context.Clear(Some(&D2D1_COLOR_F {
-                    r: 1.0,
-                    g: 1.0,
-                    b: 1.0,
-                    a: 1.0,
-                }));
-                self.log("Background cleared to white");
-                
-                // Generate D2D scene
-                let scene_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    self.log("Generating D2D scene...");
-                    blitz_renderer_vello::renderer::d2drender::generate_d2d_scene(
-                        &mut *device_context,
-                        doc.as_ref(),
-                        viewport.scale_f64(),
-                        viewport.window_size.0,
-                        viewport.window_size.1,
-                        devtools,
-                    );
-                    self.log("D2D scene generation completed");
-                }));
-                
-                // Handle any panic in scene generation
-                if let Err(panic) = scene_result {
-                    self.log("PANIC during D2D scene generation");
-                    if let Some(panic_msg) = panic.downcast_ref::<&str>() {
-                        self.log(&format!("Panic message: {}", panic_msg));
-                    } else if let Some(panic_string) = panic.downcast_ref::<String>() {
-                        self.log(&format!("Panic message: {}", panic_string));
-                    }
-                    
-                    // Still need to end drawing even if scene generation failed
-                    self.log("Calling EndDraw after panic...");
-                    let end_hr = device_context.EndDraw(Some(&mut tag1), Some(&mut tag2));
-                    if let Err(error) = end_hr {
-                        self.log(&format!("EndDraw failed with error code: 0x{:08X}", error.code().0));
-                    } else {
-                        self.log("EndDraw succeeded after panic");
-                    }
-                    
-                    // Re-throw the panic to be caught by the outer catch_unwind
-                    std::panic::resume_unwind(panic);
-                }
-                
-                // End drawing (only reached if no panic occurred)
-                self.log("Calling EndDraw...");
-                let end_hr = device_context.EndDraw(Some(&mut tag1), Some(&mut tag2));
-                if let Err(error) = end_hr {
-                    self.log(&format!("EndDraw failed with error code: 0x{:08X}", error.code().0));
-                    Err(error)
-                } else {
-                    self.log("EndDraw successful");
-                    Ok(())
-                }
-            }));
-            
-            // Handle panic from the entire Draw cycle
-            match draw_result {
-                Ok(inner_result) => inner_result,
+            let viewport = match self.viewport.try_lock() {
+                Ok(v) => v,
                 Err(_) => {
-                    self.log("PANIC occurred during drawing cycle");
-                    // Try to end drawing just in case, but ignore any errors
+                    self.log("Could not lock viewport for rendering");
+                    *self.drawing_in_progress.borrow_mut() = false;
+                    return Ok(());
+                }
+            };
+            
+            let devtools = self.devtools.borrow().clone();
+
+            // Skip rendering if viewport dimensions are invalid
+            if viewport.window_size.0 == 0 || viewport.window_size.1 == 0 {
+                self.log(&format!("Invalid viewport dimensions: {}x{}", viewport.window_size.0, viewport.window_size.1));
+                *self.drawing_in_progress.borrow_mut() = false;
+                return Ok(());
+            }
+            
+            // Now try to borrow the device context
+            let mut device_context = match self.device_context.try_borrow_mut() {
+                Ok(ctx) => ctx,
+                Err(_) => {
+                    // If we can't borrow the device context, mark that we need to render again later
+                    *self.needs_render.borrow_mut() = true;
+                    *self.drawing_in_progress.borrow_mut() = false;
+                    self.log("Could not borrow device context for rendering");
+                    return Ok(());
+                }
+            };
+
+            self.log("Starting D2D rendering process");
+            self.log(&format!("Viewport size: {}x{}", viewport.window_size.0, viewport.window_size.1));
+            self.log(&format!("Scale factor: {}", viewport.scale_f64()));
+            
+            // Use a safe approach to handle the Direct2D rendering
+            unsafe {
+                // First ensure we're not already drawing
+                let mut tag1: u64 = 0;
+                let mut tag2: u64 = 0;
+
+                // Attempt to end any existing drawing session first
+                // If no session exists, this will gracefully fail
+                self.log("Checking for active drawing session...");
+                
+                // We'll wrap this in its own catch_unwind to ensure we don't crash
+                if let Err(_) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    // Try to end any potentially in-progress drawing
                     let _ = device_context.EndDraw(Some(&mut tag1), Some(&mut tag2));
-                    Err(Error::new(E_FAIL, "Panic during drawing"))
+                })) {
+                    self.log("Error checking for drawing session, ignoring and continuing");
+                }
+                
+                // Short sleep to allow D2D pipeline to stabilize
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                
+                // Now start the actual drawing
+                self.log("Beginning new drawing session");
+                
+                // Start the drawing session - BeginDraw() returns () not Result, no need to match on it
+                let draw_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    // Begin drawing
+                    device_context.BeginDraw();
+                    self.log("BeginDraw called successfully");
+                    
+                    // Clear background with white - ensure it's visible!
+                    let background_color = D2D1_COLOR_F {
+                        r: 1.0, // White
+                        g: 1.0,
+                        b: 1.0,
+                        a: 1.0,
+                    };
+                    device_context.Clear(Some(&background_color));
+                    self.log("Background cleared to white");
+                    
+                    // Create debug visual elements to verify rendering pipeline
+                    self.log("Adding debug visual markers");
+                    
+                    // Draw a blue square in top-left
+                    let blue_color = D2D1_COLOR_F {
+                        r: 0.0, // Blue
+                        g: 0.0,
+                        b: 1.0, 
+                        a: 1.0, // Full opacity for better visibility
+                    };
+                    
+                    // Blue square
+                    let blue_square = D2D_RECT_F {
+                        left: 10.0,
+                        top: 10.0,
+                        right: 50.0,
+                        bottom: 50.0,
+                    };
+                    
+                    // Red square in top-right corner
+                    let red_color = D2D1_COLOR_F {
+                        r: 1.0, // Red
+                        g: 0.0,
+                        b: 0.0, 
+                        a: 1.0,
+                    };
+                    
+                    let right_edge = viewport.window_size.0 as f32;
+                    let red_square = D2D_RECT_F {
+                        left: right_edge - 50.0,
+                        top: 10.0,
+                        right: right_edge - 10.0,
+                        bottom: 50.0,
+                    };
+                    
+                    // Green square in bottom-left corner
+                    let green_color = D2D1_COLOR_F {
+                        r: 0.0,
+                        g: 1.0, // Green
+                        b: 0.0, 
+                        a: 1.0,
+                    };
+                    
+                    let bottom_edge = viewport.window_size.1 as f32;
+                    let green_square = D2D_RECT_F {
+                        left: 10.0,
+                        top: bottom_edge - 50.0,
+                        right: 50.0,
+                        bottom: bottom_edge - 10.0,
+                    };
+                    
+                    // Draw the squares
+                    let blue_brush_result = device_context.CreateSolidColorBrush(&blue_color, None);
+                    let red_brush_result = device_context.CreateSolidColorBrush(&red_color, None);
+                    let green_brush_result = device_context.CreateSolidColorBrush(&green_color, None);
+                    
+                    if let Ok(brush) = blue_brush_result {
+                        device_context.FillRectangle(&blue_square, &brush);
+                        self.log("Drew blue square at top-left");
+                    }
+                    
+                    if let Ok(brush) = red_brush_result {
+                        device_context.FillRectangle(&red_square, &brush);
+                        self.log("Drew red square at top-right");
+                    }
+                    
+                    if let Ok(brush) = green_brush_result {
+                        device_context.FillRectangle(&green_square, &brush);
+                        self.log("Drew green square at bottom-left");
+                    }
+                    
+                    // Generate D2D scene for the actual content
+                    let scene_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        self.log("Generating D2D scene...");
+                        blitz_renderer_vello::renderer::d2drender::generate_d2d_scene(
+                            &mut *device_context,
+                            doc.as_ref(),
+                            viewport.scale_f64(),
+                            viewport.window_size.0,
+                            viewport.window_size.1,
+                            devtools,
+                        );
+                        self.log("D2D scene generation completed successfully");
+                        Ok::<(), windows::core::Error>(())
+                    }));
+                    
+                    // Handle scene generation result
+                    if let Err(err) = scene_result {
+                        self.log("Error during scene generation");
+                        if let Some(s) = err.downcast_ref::<&str>() {
+                            self.log(&format!("Scene generation error: {}", s));
+                        } else if let Some(s) = err.downcast_ref::<String>() {
+                            self.log(&format!("Scene generation error: {}", s));
+                        } else {
+                            self.log("Unknown scene generation error type");
+                        }
+                        // Don't propagate the error, just log it
+                    }
+                    
+                    // Always end drawing session
+                    self.log("Ending drawing session");
+                    match device_context.EndDraw(Some(&mut tag1), Some(&mut tag2)) {
+                        Ok(_) => {
+                            self.log("EndDraw successful");
+                            Ok(())
+                        },
+                        Err(e) => {
+                            self.log(&format!("EndDraw failed: 0x{:08X}", e.code().0));
+                            Err(e)
+                        }
+                    }
+                }));
+                
+                // Handle overall result
+                match draw_result {
+                    Ok(inner_result) => inner_result,
+                    Err(_) => {
+                        self.log("Panic during rendering, attempting cleanup");
+                        
+                        // Try one final EndDraw to clean up, ignore any errors
+                        let _ = device_context.EndDraw(Some(&mut tag1), Some(&mut tag2));
+                        
+                        Err(Error::new(E_FAIL, "Panic during rendering"))
+                    }
                 }
             }
         };
         
-        // Always reset the drawing flag, regardless of result
+        // ALWAYS unset the drawing flag when we're done, regardless of success or failure
         *self.drawing_in_progress.borrow_mut() = false;
         
-        if render_result.is_ok() {
-            self.log("Rendering completed successfully");
-        } else if let Err(e) = &render_result {
-            self.log(&format!("Rendering failed: 0x{:08X}", e.code().0));
+        match &result {
+            Ok(_) => self.log("Rendering completed successfully"),
+            Err(e) => self.log(&format!("Rendering failed: 0x{:08X}", e.code().0)),
         }
         
-        render_result
+        result
+    }
+
+    /// Tick function called by the rendering loop - performs rendering if needed
+    pub fn tick(&self) -> Result<()> {
+        self.log("D2DRenderer.tick called");
+        
+        // Use catch_unwind to safely handle any potential panics
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let result = self.render_if_needed();
+            match &result {
+                Ok(_) => self.log("D2DRenderer.tick - render_if_needed completed successfully"),
+                Err(e) => self.log(&format!("D2DRenderer.tick - render_if_needed failed: 0x{:08X}", e.code().0)),
+            }
+            result
+        }));
+        
+        // Handle the catch_unwind result
+        match result {
+            Ok(inner_result) => {
+                self.log("d2drenderer_tick completed successfully");
+                inner_result
+            },
+            Err(_) => {
+                self.log("Panic occurred in tick function");
+                Err(Error::new(windows::Win32::Foundation::E_FAIL, "Panic during tick"))
+            }
+        }
     }
 }

@@ -19,6 +19,7 @@ blitz-html = { path = "../blitz-html" }
 blitz-renderer-vello = { path = "../blitz-renderer-vello" }
 comrak = { version = "0.36", default-features = false }
 keyboard-types = "0.7.0"
+scopeguard = "1.2"
 windows.workspace = true
 windows-core.workspace = true
 windows-targets.workspace = true

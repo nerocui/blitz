@@ -135,6 +135,7 @@ pub fn generate_d2d_scene(
     height: u32,
     devtool_config: Devtools,
 ) {
+    println!("[RUST] Debug: Entering generate_d2d_scene with {}x{} at scale {}", width, height, scale);
     CLIPS_USED.store(0, atomic::Ordering::SeqCst);
     CLIPS_WANTED.store(0, atomic::Ordering::SeqCst);
 
@@ -145,7 +146,27 @@ pub fn generate_d2d_scene(
         height,
         devtools: devtool_config,
     };
-    generator.generate_d2d_scene(rt);
+    
+    // Check if the DOM has any content
+    println!("[RUST] Debug: DOM root element exists: {}", generator.dom.as_ref().root_element().id > 0);
+    
+    // Try-catch the scene generation to catch any panics
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        generator.generate_d2d_scene(rt)
+    })) {
+        Ok(_) => println!("[RUST] Debug: Scene generation completed successfully"),
+        Err(e) => {
+            if let Some(s) = e.downcast_ref::<String>() {
+                println!("[RUST] Error: Scene generation panicked with: {}", s);
+            } else if let Some(s) = e.downcast_ref::<&str>() {
+                println!("[RUST] Error: Scene generation panicked with: {}", s);
+            } else {
+                println!("[RUST] Error: Scene generation panicked with unknown error");
+            }
+        }
+    }
+    
+    println!("[RUST] Debug: Exiting generate_d2d_scene");
 }
 
 pub struct D2dSceneGenerator<'dom> {
@@ -160,7 +181,7 @@ impl D2dSceneGenerator<'_> {
     fn node_position(
         &self,
         node: usize,
-        location: Point2D<f64, f64>,
+        location: Point2D<f64, f64>
     ) -> (Layout, Point2D<f64, f64>) {
         let layout = self.layout(node);
         let pos: Point2D<f64, f64> = Point2D::new(
@@ -312,39 +333,6 @@ impl D2dSceneGenerator<'_> {
         }
     }
 
-    fn pain_red_shit(&self, rt: &mut ID2D1DeviceContext) {
-        unsafe {
-            rt.Clear(Some(&D2D1_COLOR_F {
-                r: 1.0,
-                g: 0.0,
-                b: 0.0,
-                a: 0.0,
-            }));
-        }
-    }
-
-    fn pain_green_shit(&self, rt: &mut ID2D1DeviceContext) {
-        unsafe {
-            rt.Clear(Some(&D2D1_COLOR_F {
-                r: 0.0,
-                g: 1.0,
-                b: 0.0,
-                a: 0.0,
-            }));
-        }
-    }
-
-    fn pain_blue_shit(&self, rt: &mut ID2D1DeviceContext) {
-        unsafe {
-            rt.Clear(Some(&D2D1_COLOR_F {
-                r: 0.0,
-                g: 0.0,
-                b: 1.0,
-                a: 0.0,
-            }));
-        }
-    }
-
     fn render_debug_overlay(&self, rt: &mut ID2D1DeviceContext, node_id: usize) {
         let scale = self.scale;
         let viewport_scroll = self.dom.as_ref().viewport_scroll();
@@ -454,25 +442,22 @@ impl D2dSceneGenerator<'_> {
         &self,
         rt: &mut ID2D1DeviceContext,
         node_id: usize,
-        location: Point2D<f64, f64>,
+        location: Point2D<f64, f64>
     ) {
         let node = &self.dom.as_ref().tree()[node_id];
 
         // Early return if the element is hidden
         if matches!(node.style.display, taffy::Display::None) {
-            // self.pain_red_shit(rt);
             return;
         }
 
         // Only draw elements with a style
         if node.primary_styles().is_none() {
-            // self.pain_green_shit(rt);
             return;
         }
 
         // Hide elements with "hidden" attribute
         if let Some("true" | "") = node.attr(local_name!("hidden")) {
-            // self.pain_blue_shit(rt);
             return;
         }
 
@@ -484,7 +469,6 @@ impl D2dSceneGenerator<'_> {
         // Hide elements with invisible styling
         let styles = node.primary_styles().unwrap();
         if styles.get_effects().opacity == 0.0 {
-            // self.pain_red_shit(rt);
             return;
         }
 

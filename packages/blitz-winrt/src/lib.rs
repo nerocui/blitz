@@ -359,9 +359,16 @@ unsafe extern "system" fn d2drenderer_render(
     markdown: HSTRING
 ) -> HRESULT {
     let impl_ptr = this as *mut D2DRendererImpl;
+    (*impl_ptr).inner.iframe.log(&format!("d2drenderer_render called with markdown length: {}", markdown.len()));
     match (*impl_ptr).inner.iframe.render_markdown(&markdown.to_string()) {
-        Ok(_) => S_OK,
-        Err(e) => e.into()
+        Ok(_) => {
+            (*impl_ptr).inner.iframe.log("d2drenderer_render completed successfully");
+            S_OK
+        },
+        Err(e) => {
+            (*impl_ptr).inner.iframe.log(&format!("d2drenderer_render failed: {:?}", e));
+            e.into()
+        }
     }
 }
 
@@ -524,9 +531,16 @@ unsafe extern "system" fn d2drenderer_tick(
     this: *mut std::ffi::c_void
 ) -> HRESULT {
     let impl_ptr = this as *mut D2DRendererImpl;
+    (*impl_ptr).inner.iframe.log("d2drenderer_tick called");
     match (*impl_ptr).inner.tick() {
-        Ok(_) => S_OK,
-        Err(e) => e.into()
+        Ok(_) => {
+            (*impl_ptr).inner.iframe.log("d2drenderer_tick completed successfully");
+            S_OK
+        },
+        Err(e) => {
+            (*impl_ptr).inner.iframe.log(&format!("d2drenderer_tick failed: {:?}", e));
+            e.into()
+        }
     }
 }
 

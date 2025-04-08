@@ -72,6 +72,8 @@ pub struct D2DRenderer {
 
 impl D2DRenderer {
     pub fn new(device_context: ID2D1DeviceContext) -> Self {
+        // Can't use logger yet since it's not set, will be visible in console only
+        println!("[Rust debug] Creating new D2DRenderer");
         Self {
             iframe: Arc::new(IFrame::new(device_context)),
         }
@@ -79,11 +81,24 @@ impl D2DRenderer {
     
     // Set logger to use for debug output
     pub fn set_logger(&self, logger: ILogger) -> Result<()> {
-        self.iframe.set_logger(logger)
+        // Log before setting logger (will only be visible in console)
+        println!("[Rust debug] D2DRenderer.set_logger called");
+        
+        let result = self.iframe.set_logger(logger);
+        
+        // Now we can use the logger through iframe
+        self.iframe.log("D2DRenderer.set_logger completed");
+        result
     }
     
     // Called by the host application's render loop to perform any pending render operations
     pub fn tick(&self) -> Result<()> {
-        self.iframe.render_if_needed()
+        self.iframe.log("D2DRenderer.tick called");
+        let result = self.iframe.render_if_needed();
+        match &result {
+            Ok(_) => self.iframe.log("D2DRenderer.tick - render_if_needed completed successfully"),
+            Err(e) => self.iframe.log(&format!("D2DRenderer.tick - render_if_needed failed: {:?}", e)),
+        }
+        result
     }
 }
