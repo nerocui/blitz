@@ -179,11 +179,68 @@ namespace MarkdownTest
                         _isActive = false;
                     }
                     
-                    // Set the initial size based on the actual SwapChainPanel size
-                    if (_isActive && _d2dRenderer != null && swapChainPanel.ActualWidth > 0 && swapChainPanel.ActualHeight > 0)
+                    // Set the initial size based on the SwapChainPanel size
+                    if (_isActive && _d2dRenderer != null)
                     {
-                        System.Diagnostics.Debug.WriteLine($"Resizing to {swapChainPanel.ActualWidth}x{swapChainPanel.ActualHeight}");
-                        _d2dRenderer.Resize((uint)swapChainPanel.ActualWidth, (uint)swapChainPanel.ActualHeight);
+                        // Get panel size or use fallback dimensions if ActualWidth/Height are 0
+                        double width = swapChainPanel.ActualWidth;
+                        double height = swapChainPanel.ActualHeight;
+                        
+                        // If ActualWidth/Height are 0, try to use requested width/height
+                        if (width <= 0 || height <= 0)
+                        {
+                            width = swapChainPanel.Width;
+                            height = swapChainPanel.Height;
+                            System.Diagnostics.Debug.WriteLine($"Using requested size: {width}x{height}");
+                        }
+                        
+                        // If still 0, try to get size from parent container
+                        if (width <= 0 || height <= 0)
+                        {
+                            var parent = VisualTreeHelper.GetParent(swapChainPanel) as FrameworkElement;
+                            if (parent != null)
+                            {
+                                width = parent.ActualWidth;
+                                height = parent.ActualHeight;
+                                System.Diagnostics.Debug.WriteLine($"Using parent size: {width}x{height}");
+                            }
+                        }
+                        
+                        // If all else fails, use default minimum dimensions
+                        if (width <= 0 || height <= 0)
+                        {
+                            width = 800;
+                            height = 600;
+                            System.Diagnostics.Debug.WriteLine($"Using default size: {width}x{height}");
+                        }
+                        
+                        // Ensure size is at least 1x1 to avoid rendering errors
+                        width = Math.Max(1, width);
+                        height = Math.Max(1, height);
+                        
+                        System.Diagnostics.Debug.WriteLine($"Resizing to {width}x{height}");
+                        _d2dRenderer.Resize((uint)width, (uint)height);
+                        
+                        // Schedule an additional resize when layout is complete
+                        if (swapChainPanel.ActualWidth <= 0 || swapChainPanel.ActualHeight <= 0)
+                        {
+                            swapChainPanel.Loaded += (s, e) => 
+                            {
+                                if (_isActive && _d2dRenderer != null && 
+                                    swapChainPanel.ActualWidth > 0 && swapChainPanel.ActualHeight > 0)
+                                {
+                                    System.Diagnostics.Debug.WriteLine($"Post-load resize to {swapChainPanel.ActualWidth}x{swapChainPanel.ActualHeight}");
+                                    _d2dRenderer.Resize((uint)swapChainPanel.ActualWidth, (uint)swapChainPanel.ActualHeight);
+                                }
+                            };
+                        }
+                        
+                        // CRITICAL FIX: Explicitly call Render immediately after setup to initialize content
+                        if (_markdown != null)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Explicitly calling Render with markdown content length: {_markdown.Length}");
+                            Render();
+                        }
                     }
                 }
                 else
