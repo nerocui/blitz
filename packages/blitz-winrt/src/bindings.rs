@@ -547,7 +547,7 @@ pub struct ID2DRendererFactory_Vtbl {
 windows_core::imp::define_interface!(
     ILogger,
     ILogger_Vtbl,
-    0x880f8a23_5d32_5bd5_bb34_01c46da89747
+    0xb9131dda_1428_539d_9a71_644070e26ebb
 );
 impl windows_core::RuntimeType for ILogger {
     const SIGNATURE: windows_core::imp::ConstBuffer =
@@ -569,12 +569,35 @@ impl ILogger {
             .ok()
         }
     }
+    pub fn LogWithCategory(
+        &self,
+        message: &windows_core::HSTRING,
+        category: &windows_core::HSTRING,
+        location: &windows_core::HSTRING,
+    ) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).LogWithCategory)(
+                windows_core::Interface::as_raw(this),
+                core::mem::transmute_copy(message),
+                core::mem::transmute_copy(category),
+                core::mem::transmute_copy(location),
+            )
+            .ok()
+        }
+    }
 }
 impl windows_core::RuntimeName for ILogger {
     const NAME: &'static str = "BlitzWinRT.ILogger";
 }
 pub trait ILogger_Impl: windows_core::IUnknownImpl {
     fn LogMessage(&self, message: &windows_core::HSTRING) -> windows_core::Result<()>;
+    fn LogWithCategory(
+        &self,
+        message: &windows_core::HSTRING,
+        category: &windows_core::HSTRING,
+        location: &windows_core::HSTRING,
+    ) -> windows_core::Result<()>;
 }
 impl ILogger_Vtbl {
     pub const fn new<Identity: ILogger_Impl, const OFFSET: isize>() -> Self {
@@ -588,9 +611,28 @@ impl ILogger_Vtbl {
                 ILogger_Impl::LogMessage(this, core::mem::transmute(&message)).into()
             }
         }
+        unsafe extern "system" fn LogWithCategory<Identity: ILogger_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            message: *mut core::ffi::c_void,
+            category: *mut core::ffi::c_void,
+            location: *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                ILogger_Impl::LogWithCategory(
+                    this,
+                    core::mem::transmute(&message),
+                    core::mem::transmute(&category),
+                    core::mem::transmute(&location),
+                )
+                .into()
+            }
+        }
         Self {
             base__: windows_core::IInspectable_Vtbl::new::<Identity, ILogger, OFFSET>(),
             LogMessage: LogMessage::<Identity, OFFSET>,
+            LogWithCategory: LogWithCategory::<Identity, OFFSET>,
         }
     }
     pub fn matches(iid: &windows_core::GUID) -> bool {
@@ -601,6 +643,12 @@ impl ILogger_Vtbl {
 pub struct ILogger_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub LogMessage: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    pub LogWithCategory: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,

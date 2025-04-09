@@ -1,9 +1,13 @@
 namespace BlitzWinRT
 {
-    // Define a logger interface for debugging
+    // Enhanced logger interface for debugging with categories and locations
     interface ILogger
     {
+        // Keep original method for backward compatibility
         void LogMessage(String message);
+        
+        // Enhanced logging with category and location
+        void LogWithCategory(String message, String category, String location);
     }
 
     runtimeclass D2DRenderer

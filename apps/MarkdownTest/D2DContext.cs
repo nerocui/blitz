@@ -13,6 +13,7 @@ using Microsoft.UI.Xaml.Media;
 using WinRT;
 using System.Collections.Generic; // Required for proper WinRT interop
 using Microsoft.UI.Dispatching; // Add this for DispatcherQueue and DispatcherQueuePriority
+using MarkdownTest.Logging;
 
 namespace MarkdownTest
 {
@@ -478,7 +479,7 @@ namespace MarkdownTest
                         _d2dRenderer = new BlitzWinRT.D2DRenderer(contextPtr);
                         
                         // Create and attach our logger to the renderer
-                        _d2dLogger = new D2DLogger(isVerbose: true);
+                        _d2dLogger = new D2DLogger();
                         System.Diagnostics.Debug.WriteLine("Attaching logger to D2DRenderer");
                         _d2dRenderer.SetLogger(_d2dLogger);
                         
@@ -2034,66 +2035,5 @@ namespace MarkdownTest
         public static extern bool QueryPerformanceCounter(out LARGE_INTEGER lpPerformanceCount);
 
         #endregion
-    }
-
-    // Logger implementation for our WinRT interface
-    public class D2DLogger : BlitzWinRT.ILogger
-    {
-        private int _messageCounter = 0;
-        private bool _isVerbose;
-        private static List<string> _logBuffer = new List<string>();
-        private static readonly int MaxBufferSize = 1000;
-        
-        public D2DLogger(bool isVerbose = true)
-        {
-            _isVerbose = isVerbose;
-            LogMessage("D2DLogger created");
-        }
-        
-        public void LogMessage(string message)
-        {
-            try
-            {
-                int counter = System.Threading.Interlocked.Increment(ref _messageCounter);
-                string timestampedMessage = $"[{counter}] {DateTime.Now.ToString("HH:mm:ss.fff")} - {message}";
-                
-                // Always store in buffer for potential diagnostic retrieval
-                lock (_logBuffer)
-                {
-                    _logBuffer.Add(timestampedMessage);
-                    if (_logBuffer.Count > MaxBufferSize)
-                    {
-                        _logBuffer.RemoveAt(0);
-                    }
-                }
-                
-                // Always output to debug console for immediate visibility
-                System.Diagnostics.Debug.WriteLine($"[RUST] {timestampedMessage}");
-            }
-            catch (Exception ex)
-            {
-                // Output directly to console if there's an issue with the logger itself
-                System.Diagnostics.Debug.WriteLine($"Error in logger: {ex.Message}");
-                Console.WriteLine($"Error in logger: {ex.Message}");
-            }
-        }
-        
-        // Get all logs as a single string for diagnostic purposes
-        public static string GetAllLogs()
-        {
-            lock (_logBuffer)
-            {
-                return string.Join(Environment.NewLine, _logBuffer);
-            }
-        }
-        
-        // Clear log buffer
-        public static void ClearLogs()
-        {
-            lock (_logBuffer)
-            {
-                _logBuffer.Clear();
-            }
-        }
     }
 }
