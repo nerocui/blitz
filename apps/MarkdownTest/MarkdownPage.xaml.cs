@@ -39,15 +39,8 @@ public sealed partial class MarkdownPage : Page
 
     private void MarkdownPage_Loaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
-        // Set initial size - make sure we have enough space for rendering
-        if (double.IsNaN(scpD2D.Width) || scpD2D.Width <= 0)
-        {
-            scpD2D.Width = 800;
-        }
-        if (double.IsNaN(scpD2D.Height) || scpD2D.Height <= 0)
-        {
-            scpD2D.Height = 600;
-        }
+        // Remove fixed dimensions to allow proper stretching
+        // The parent Grid with Row height "*" will handle sizing
         
         // Focus the SwapChainPanel to receive keyboard input
         scpD2D.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
@@ -149,9 +142,9 @@ public sealed partial class MarkdownPage : Page
     {
         base.OnNavigatedTo(e);
         
-        // Ensure we have size before setting up rendering
-        if (double.IsNaN(scpD2D.Width) || scpD2D.Width <= 0) scpD2D.Width = 800;
-        if (double.IsNaN(scpD2D.Height) || scpD2D.Height <= 0) scpD2D.Height = 600;
+        //// Ensure we have size before setting up rendering
+        //if (double.IsNaN(scpD2D.Width) || scpD2D.Width <= 0) scpD2D.Width = 800;
+        //if (double.IsNaN(scpD2D.Height) || scpD2D.Height <= 0) scpD2D.Height = 600;
         
         // Use a simple but highly visible test markdown pattern
         string markdown = @"# Test Markdown Rendering
