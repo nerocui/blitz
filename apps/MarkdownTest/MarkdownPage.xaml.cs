@@ -28,13 +28,13 @@ public sealed partial class MarkdownPage : Page
         // Create a timer to update FPS display
         _fpsUpdateTimer = DispatcherQueue.CreateTimer();
         _fpsUpdateTimer.Interval = TimeSpan.FromMilliseconds(500);
-        _fpsUpdateTimer.Tick += FpsUpdateTimer_Tick;
+        _fpsUpdateTimer.Tick += DispatcherTimer_Tick;
     }
 
-    private void FpsUpdateTimer_Tick(object sender, object e)
-    {
-        // Update performance info
-        tbPerf.Text = D2DContext.GetPerformanceData();
+    private void DispatcherTimer_Tick(object sender, object e)
+    {   
+        // Update dev tools if visible
+        UpdateDevTools();
     }
 
     private void MarkdownPage_Loaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
@@ -199,18 +199,32 @@ Testing 1, 2, 3...";
         D2DContext.UnloadPage();
     }
 
-    // Toggle performance overlay visibility
-    private void BtnTogglePerf_Click(object sender, RoutedEventArgs e)
+    // Add these methods to manage the developer tools panel
+    private void BtnOpenDevTools_Click(object sender, RoutedEventArgs e)
     {
-        if (perfPanel.Visibility == Visibility.Visible)
+        if (devToolsPanel.Visibility == Visibility.Visible)
         {
-            perfPanel.Visibility = Visibility.Collapsed;
-            btnTogglePerf.Content = "Show Performance";
+            devToolsPanel.Visibility = Visibility.Collapsed;
+            // Ensure focus returns to the main panel
+            scpD2D.Focus(FocusState.Programmatic);
         }
         else
         {
-            perfPanel.Visibility = Visibility.Visible;
-            btnTogglePerf.Content = "Hide Performance";
+            devToolsPanel.Visibility = Visibility.Visible;
+            devToolsPanel.Height = 300; // Set a default height
+            devToolsPanel.Focus(FocusState.Programmatic);
+            
+            // Update the performance data when opening
+            devToolsPanel.UpdatePerformanceData(D2DContext.GetPerformanceData());
+        }
+    }
+
+    // Call this from your existing timer to update performance data when dev tools are visible
+    private void UpdateDevTools()
+    {
+        if (devToolsPanel.Visibility == Visibility.Visible)
+        {
+            devToolsPanel.UpdatePerformanceData(D2DContext.GetPerformanceData());
         }
     }
 }

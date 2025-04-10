@@ -62,6 +62,32 @@
     </Page>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Add these lines to include the new controls -->
+    <Compile Update="Controls\DevToolsPanel.xaml.cs">
+      <DependentUpon>Controls\DevToolsPanel.xaml</DependentUpon>
+    </Compile>
+    <Compile Update="Controls\LogViewer.xaml.cs">
+      <DependentUpon>Controls\LogViewer.xaml</DependentUpon>
+    </Compile>
+    <Compile Update="Controls\PerformanceMonitor.xaml.cs">
+      <DependentUpon>Controls\PerformanceMonitor.xaml</DependentUpon>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Add these lines to include the XAML files -->
+    <Page Update="Controls\DevToolsPanel.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Update="Controls\LogViewer.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Update="Controls\PerformanceMonitor.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+
   <!--
     Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution
     Explorer "Package and Publish" context menu entry to be enabled for this project even if
