@@ -1,5 +1,16 @@
+use std::sync::atomic::{self, AtomicUsize, AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::cell::RefCell;
+
+// Add the static variables for caching
+static LAST_HOVER_NODE: AtomicUsize = AtomicUsize::new(0);
+static FORCE_REDRAW: AtomicBool = AtomicBool::new(true);
+static LAST_ACTIVE_NODE: AtomicUsize = AtomicUsize::new(0);
+static LAST_SCROLL_X: AtomicUsize = AtomicUsize::new(0);
+static LAST_SCROLL_Y: AtomicUsize = AtomicUsize::new(0);
+static LAST_WIDTH: AtomicUsize = AtomicUsize::new(0);
+static LAST_HEIGHT: AtomicUsize = AtomicUsize::new(0);
+static RENDERING_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 use blitz_html::HtmlDocument;
 use blitz_traits::{
@@ -692,60 +703,132 @@ impl IFrame {
     
     /// Performs the actual rendering if needed
     pub fn render_if_needed(&self) -> Result<()> {
-        self.log("D2DRenderer.render_if_needed starting");
+        // Optimize rendering with more comprehensive caching
         
-        // Add extensive debugging
-        {
-            let is_active = *self.active.borrow();
-            let is_initialized = *self.content_initialized.borrow();
-            let needs_render = *self.needs_render.borrow();
-            let drawing_in_progress = *self.drawing_in_progress.borrow();
-            
-            self.log(&format!("Render state: active={}, initialized={}, needs_render={}, drawing_in_progress={}", 
-                is_active, is_initialized, needs_render, drawing_in_progress));
-        }
-        
-        // Skip if we don't need to render
-        if !*self.needs_render.borrow() {
-            self.log("D2DRenderer.render_if_needed no need to render");
-            return Ok(());
-        }
-
-        if !*self.active.borrow() {
-            self.log("Skipping render - not active");
-            return Ok(());
-        }
-
-        if !*self.content_initialized.borrow() {
-            self.log("Skipping render - content not initialized");
+        // 1. Check if we should do any rendering at all
+        if !*self.active.borrow() || !*self.content_initialized.borrow() {
+            self.log("Skipping render - inactive or content not initialized");
             return Ok(());
         }
         
-        // Check if drawing is already in progress
+        // 2. Early exit conditions
         if *self.drawing_in_progress.borrow() {
-            // If drawing is already in progress, don't try to render again
             self.log("Drawing already in progress, skipping render");
             return Ok(());
         }
         
-        // Acquire an exclusive lock on the device context to prevent multiple threads
-        // from rendering simultaneously
+        // 3. Evaluate if rendering is needed by checking state changes
+        let should_render = {
+            // Check if rendering was explicitly requested
+            let needs_render = *self.needs_render.borrow();
+            
+            // Lock viewport to check dimensions and scroll position
+            let viewport = match self.viewport.try_lock() {
+                Ok(v) => v,
+                Err(_) => {
+                    self.log("Could not lock viewport for caching check");
+                    return Ok(());
+                }
+            };
+            
+            // Get document info for additional caching checks
+            let doc = match self.doc.try_borrow() {
+                Ok(doc) => doc,
+                Err(_) => {
+                    self.log("Could not borrow document for caching check");
+                    return Ok(());
+                }
+            };
+            
+            // Get current state values
+            let current_size = (viewport.window_size.0 as usize, viewport.window_size.1 as usize);
+            let viewport_scroll = doc.as_ref().viewport_scroll();
+            let current_scroll = (viewport_scroll.x as usize, viewport_scroll.y as usize);
+            let current_hover = match doc.as_ref().get_hover_node_id() {
+                Some(id) => id,
+                None => 0,
+            };
+            let current_active = match doc.as_ref().get_focussed_node_id() {
+                Some(id) => id,
+                None => 0,
+            };
+            
+            // Load previous state from atomic variables
+            let last_width = LAST_WIDTH.load(Ordering::SeqCst);
+            let last_height = LAST_HEIGHT.load(Ordering::SeqCst);
+            let last_scroll_x = LAST_SCROLL_X.load(Ordering::SeqCst);
+            let last_scroll_y = LAST_SCROLL_Y.load(Ordering::SeqCst);
+            let last_hover = LAST_HOVER_NODE.load(Ordering::SeqCst);
+            let last_active = LAST_ACTIVE_NODE.load(Ordering::SeqCst);
+            
+            // Determine if we need to render
+            let size_changed = current_size.0 != last_width || current_size.1 != last_height;
+            let scroll_changed = current_scroll.0 != last_scroll_x || current_scroll.1 != last_scroll_y;
+            let hover_changed = current_hover != last_hover;
+            let active_changed = current_active != last_active;
+            
+            // Force redraw if too many renders have been skipped (safety net)
+            let render_count = RENDERING_COUNT.fetch_add(1, Ordering::SeqCst);
+            let force_periodic = render_count > 100; // Force render every 100 potential renders
+            
+            if force_periodic {
+                RENDERING_COUNT.store(0, Ordering::SeqCst);
+                self.log("Forcing periodic render to ensure content freshness");
+            }
+            
+            // Update cached state regardless of render decision
+            LAST_WIDTH.store(current_size.0, Ordering::SeqCst);
+            LAST_HEIGHT.store(current_size.1, Ordering::SeqCst);
+            LAST_SCROLL_X.store(current_scroll.0, Ordering::SeqCst);
+            LAST_SCROLL_Y.store(current_scroll.1, Ordering::SeqCst);
+            LAST_HOVER_NODE.store(current_hover, Ordering::SeqCst);
+            LAST_ACTIVE_NODE.store(current_active, Ordering::SeqCst);
+            
+            // Log what triggered the render if we're going to render
+            if needs_render || size_changed || scroll_changed || hover_changed || active_changed || force_periodic {
+                let render_reason = if needs_render {
+                    "explicit request"
+                } else if size_changed {
+                    "size change"
+                } else if scroll_changed {
+                    "scroll position change"
+                } else if hover_changed {
+                    "hover state change"
+                } else if active_changed {
+                    "active state change"
+                } else {
+                    "periodic refresh"
+                };
+                
+                self.log(&format!("Render needed due to: {}", render_reason));
+                true
+            } else {
+                self.log("No render needed - content unchanged");
+                false
+            }
+        };
+        
+        // 4. Skip rendering if nothing changed
+        if !should_render {
+            // Make sure we reset the needs_render flag even if we skip rendering
+            *self.needs_render.borrow_mut() = false;
+            return Ok(());
+        }
+        
+        // 5. Acquire device context lock
         let _device_lock = match self.device_context_lock.try_lock() {
             Ok(lock) => lock,
             Err(_) => {
-                // Already locked, another thread is rendering
                 self.log("Device context already locked by another thread, skipping render");
                 return Ok(());
             }
         };
         
-        // Reset needs_render flag
+        // 6. Reset needs_render flag and set drawing_in_progress flag
         *self.needs_render.borrow_mut() = false;
-        
-        // Set drawing in progress flag BEFORE we acquire any resources
         *self.drawing_in_progress.borrow_mut() = true;
         
-        // Create a scope to ensure we always unset the drawing flag when done
+        // 7. Set up scope to ensure we always unset the drawing flag when done
         let result: Result<()> = {
             let doc = match self.doc.try_borrow() {
                 Ok(doc) => doc,
@@ -764,7 +847,7 @@ impl IFrame {
             };
             
             let devtools = self.devtools.borrow().clone();
-
+            
             // Skip rendering if viewport dimensions are invalid
             if viewport.window_size.0 == 0 || viewport.window_size.1 == 0 {
                 self.log(&format!("Invalid viewport dimensions: {}x{}", viewport.window_size.0, viewport.window_size.1));
@@ -785,68 +868,30 @@ impl IFrame {
             self.log(&format!("Viewport size: {}x{}", viewport.window_size.0, viewport.window_size.1));
             self.log(&format!("Scale factor: {}", viewport.scale_f64()));
             
+            // Set FORCE_REDRAW to true to ensure d2drender actually draws
+            // Note: we already know a redraw is needed at this point
+            FORCE_REDRAW.store(true, Ordering::SeqCst);
+            
             // Use a safe approach to handle the Direct2D rendering
             unsafe {
-                // Store the original rendering state - no longer needed as d2drender.rs handles this
-                // let original_antialias = device_context.GetAntialiasMode();
-                // let original_text_antialias = device_context.GetTextAntialiasMode();
+                // Call the blitz-renderer-vello d2drender module directly
+                // d2drender.rs now handles all BeginDraw/EndDraw internally
+                d2drender::generate_d2d_scene(
+                    &mut *device_context,
+                    doc.as_ref(),
+                    viewport.scale_f64(),
+                    viewport.window_size.0, 
+                    viewport.window_size.1,
+                    devtools,
+                );
                 
-                // Set up optimal rendering parameters - no longer needed as d2drender.rs handles this
-                // device_context.SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-                // device_context.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
-                
-                // Clear the background - no longer needed as d2drender.rs handles this
-                // device_context.Clear(Some(&D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }));
-                
-                // BeginDraw no longer needed here as d2drender.rs handles it
-                // device_context.BeginDraw();
-                // self.log("BeginDraw called successfully");
-                
-                // Use a scope to ensure we release resources properly
-                let render_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    // Call the blitz-renderer-vello d2drender module directly
-                    // d2drender.rs now handles all BeginDraw/EndDraw internally
-                    d2drender::generate_d2d_scene(
-                        &mut *device_context,
-                        doc.as_ref(),
-                        viewport.scale_f64(),
-                        viewport.window_size.0, 
-                        viewport.window_size.1,
-                        devtools,
-                    );
-                    
-                    self.log("Successfully completed d2drender::generate_d2d_scene call");
-                }));
-                
-                // Handle any rendering errors
-                if let Err(e) = render_result {
-                    // If rendering failed, log error details
-                    if let Some(s) = e.downcast_ref::<&str>() {
-                        self.log(&format!("Renderer panicked: {}", s));
-                    } else if let Some(s) = e.downcast_ref::<String>() {
-                        self.log(&format!("Renderer panicked: {}", s));
-                    } else {
-                        self.log("Renderer panicked with unknown error");
-                    }
-                    
-                    // No need to provide fallback rendering here - d2drender.rs handles error recovery
-                    return Err(Error::new(windows::Win32::Foundation::E_FAIL, "Render failed"));
-                }
-                
-                // EndDraw no longer needed here as d2drender.rs handles it
-                // let mut tag1: u64 = 0;
-                // let mut tag2: u64 = 0;
-                // let hr = device_context.EndDraw(Some(&mut tag1), Some(&mut tag2));
-                
-                // No need to restore states as d2drender.rs handles this
-                // device_context.SetAntialiasMode(original_antialias);
-                // device_context.SetTextAntialiasMode(original_text_antialias);
+                self.log("Successfully completed d2drender::generate_d2d_scene call");
             }
             
             Ok(())
         };
         
-        // ALWAYS unset the drawing flag when we're done, regardless of success or failure
+        // 8. ALWAYS unset the drawing flag when we're done, regardless of success or failure
         *self.drawing_in_progress.borrow_mut() = false;
         
         match &result {

@@ -8,9 +8,21 @@ use windows::{
     Win32::Graphics::Dxgi::Common::*,
 };
 
-// Add these static variables for caching
+// Cache static variables for render optimization
 static LAST_HOVER_NODE: AtomicUsize = AtomicUsize::new(0);
 static FORCE_REDRAW: AtomicBool = AtomicBool::new(true);
+static LAST_ACTIVE_NODE: AtomicUsize = AtomicUsize::new(0);
+static LAST_SCROLL_X: AtomicUsize = AtomicUsize::new(0);
+static LAST_SCROLL_Y: AtomicUsize = AtomicUsize::new(0);
+static LAST_WIDTH: AtomicUsize = AtomicUsize::new(0);
+static LAST_HEIGHT: AtomicUsize = AtomicUsize::new(0);
+static RENDERING_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+// Cliping counters
+static CLIPS_USED: AtomicUsize = AtomicUsize::new(0);
+static CLIPS_WANTED: AtomicUsize = AtomicUsize::new(0);
+static CLIP_DEPTH: AtomicUsize = AtomicUsize::new(0);
+static CLIP_DEPTH_USED: AtomicUsize = AtomicUsize::new(0);
 
 use super::multicolor_rounded_rect::{Edge, ElementFrame};
 use crate::util::{Color, ToColorColor};
@@ -41,10 +53,6 @@ use windows_numerics::{self, Matrix3x2};
 use windows::Win32::UI::Shell::SHCreateMemStream;
 
 const CLIP_LIMIT: usize = 1024;
-static CLIPS_USED: AtomicUsize = AtomicUsize::new(0);
-static CLIP_DEPTH: AtomicUsize = AtomicUsize::new(0);
-static CLIP_DEPTH_USED: AtomicUsize = AtomicUsize::new(0);
-static CLIPS_WANTED: AtomicUsize = AtomicUsize::new(0);
 
 /// Helper trait for converting color types to Direct2D color format
 pub trait ToD2dColor {
