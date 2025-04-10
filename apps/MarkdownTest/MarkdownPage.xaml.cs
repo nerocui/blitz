@@ -204,19 +204,43 @@ Testing 1, 2, 3...";
     {
         if (devToolsPanel.Visibility == Visibility.Visible)
         {
-            devToolsPanel.Visibility = Visibility.Collapsed;
-            // Ensure focus returns to the main panel
-            scpD2D.Focus(FocusState.Programmatic);
+            // Hide DevTools
+            CloseDevTools();
         }
         else
         {
-            devToolsPanel.Visibility = Visibility.Visible;
-            devToolsPanel.Height = 300; // Set a default height
-            devToolsPanel.Focus(FocusState.Programmatic);
-            
-            // Update the performance data when opening
-            devToolsPanel.UpdatePerformanceData(D2DContext.GetPerformanceData());
+            // Show DevTools
+            OpenDevTools();
         }
+    }
+
+    private void OpenDevTools()
+    {
+        // Show the dev tools panel and splitter
+        devToolsPanel.Visibility = Visibility.Visible;
+        devToolsSplitter.Visibility = Visibility.Visible;
+        
+        // Set initial height for the dev tools panel (can be adjusted by user with splitter)
+        DevToolsRow.Height = new GridLength(450);
+        
+        // Ensure focus is set to the dev tools panel
+        devToolsPanel.Focus(FocusState.Programmatic);
+        
+        // Update the performance data when opening
+        devToolsPanel.UpdatePerformanceData(D2DContext.GetPerformanceData());
+    }
+
+    private void CloseDevTools()
+    {
+        // Hide the dev tools panel and splitter
+        devToolsPanel.Visibility = Visibility.Collapsed;
+        devToolsSplitter.Visibility = Visibility.Collapsed;
+        
+        // Reset the height of dev tools row
+        DevToolsRow.Height = new GridLength(0);
+        
+        // Ensure focus returns to the main panel
+        scpD2D.Focus(FocusState.Programmatic);
     }
 
     // Call this from your existing timer to update performance data when dev tools are visible

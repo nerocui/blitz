@@ -7,13 +7,15 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:controls="using:MarkdownTest.Controls"
+    xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
     mc:Ignorable="d"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
     <Grid>
+        <!-- Define a grid with two rows: main content and dev tools, initially dev tools have 0 height -->
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition x:Name="DevToolsRow" Height="0"/>
         </Grid.RowDefinitions>
 
         <!-- Main content area -->
@@ -31,9 +33,23 @@
             <FontIcon Glyph="&#xE9D9;" FontFamily="Segoe MDL2 Assets" />
         </Button>
 
-        <!-- Developer Tools Panel (Initially Collapsed) -->
+        <!-- GridSplitter for resizing the DevTools panel -->
+        <toolkit:GridSplitter x:Name="devToolsSplitter" 
+                              Grid.Row="0"
+                              Height="4"
+                              VerticalAlignment="Bottom"
+                              HorizontalAlignment="Stretch"
+                              ResizeDirection="Auto"
+                              Visibility="Collapsed"
+                              IsTabStop="False">
+            <toolkit:GridSplitter.RenderTransform>
+                <TranslateTransform X="-7" />
+            </toolkit:GridSplitter.RenderTransform>
+        </toolkit:GridSplitter>
+
+            <!-- Developer Tools Panel -->
         <controls:DevToolsPanel x:Name="devToolsPanel" 
-                                Grid.Row="1" Grid.RowSpan="2"
+                                Grid.Row="1"
                                 Visibility="Collapsed" />
     </Grid>
 </Page>
