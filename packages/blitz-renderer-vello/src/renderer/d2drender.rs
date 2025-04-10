@@ -1,4 +1,4 @@
-use std::sync::atomic::{self, AtomicUsize};
+use std::sync::atomic::{self, AtomicUsize, AtomicBool};
 use std::sync::Arc;
 use vello::kurbo::{BezPath, PathEl};
 use vello::peniko;
@@ -7,6 +7,11 @@ use windows::{
     core::*, Win32::Graphics::Direct2D::Common::*, Win32::Graphics::Direct2D::*,
     Win32::Graphics::Dxgi::Common::*,
 };
+
+// Add these static variables for caching
+static LAST_HOVER_NODE: AtomicUsize = AtomicUsize::new(0);
+static FORCE_REDRAW: AtomicBool = AtomicBool::new(true);
+
 use super::multicolor_rounded_rect::{Edge, ElementFrame};
 use crate::util::{Color, ToColorColor};
 use blitz_dom::node::{
@@ -126,7 +131,7 @@ impl Matrix3x2Ext for Matrix3x2 {
     }
 }
 
-/// Draw the current tree to the current Direct2D surface
+/// Generate a d2d scene from a BaseDocument
 pub fn generate_d2d_scene(
     rt: &mut ID2D1DeviceContext,
     dom: &BaseDocument,
@@ -135,38 +140,98 @@ pub fn generate_d2d_scene(
     height: u32,
     devtool_config: Devtools,
 ) {
-    println!("[RUST] Debug: Entering generate_d2d_scene with {}x{} at scale {}", width, height, scale);
-    CLIPS_USED.store(0, atomic::Ordering::SeqCst);
-    CLIPS_WANTED.store(0, atomic::Ordering::SeqCst);
-
-    let generator = D2dSceneGenerator {
-        dom,
-        scale,
-        width,
-        height,
-        devtools: devtool_config,
+    // Performance optimization: Check if we need to redraw the entire scene
+    // Only redraw if forced or if hover node has changed
+    let current_hover_node = match dom.get_hover_node_id() {
+        Some(id) => id,
+        None => 0,
     };
     
-    // Check if the DOM has any content
-    println!("[RUST] Debug: DOM root element exists: {}", generator.dom.as_ref().root_element().id > 0);
+    let last_hover = LAST_HOVER_NODE.load(atomic::Ordering::SeqCst);
+    let force_redraw = FORCE_REDRAW.swap(false, atomic::Ordering::SeqCst);
     
-    // Try-catch the scene generation to catch any panics
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        generator.generate_d2d_scene(rt)
-    })) {
-        Ok(_) => println!("[RUST] Debug: Scene generation completed successfully"),
-        Err(e) => {
-            if let Some(s) = e.downcast_ref::<String>() {
-                println!("[RUST] Error: Scene generation panicked with: {}", s);
-            } else if let Some(s) = e.downcast_ref::<&str>() {
-                println!("[RUST] Error: Scene generation panicked with: {}", s);
-            } else {
-                println!("[RUST] Error: Scene generation panicked with unknown error");
-            }
+    if !force_redraw && last_hover == current_hover_node && last_hover != 0 {
+        // Nothing changed, no need to redraw
+        return;
+    }
+    
+    // Update last hover node for next frame
+    LAST_HOVER_NODE.store(current_hover_node, atomic::Ordering::SeqCst);
+    
+    // Reset clipping counters
+    CLIPS_USED.store(0, atomic::Ordering::SeqCst);
+    CLIPS_WANTED.store(0, atomic::Ordering::SeqCst);
+    
+    // CRITICAL: Verify the device context has a valid render target and the target is set before proceeding
+    let mut can_safely_render = false;
+    unsafe {
+        // Before doing anything else, verify that the render target is properly set
+        let result = rt.GetTarget();
+        
+        if let Ok(current_target) = result {
+            // We have a valid target, we can proceed with rendering
+            can_safely_render = true;
+            
+            // We don't need to do anything with the target, just let it drop safely
+            std::mem::drop(current_target);
+            
+            #[cfg(debug_assertions)]
+            println!("Valid Direct2D target confirmed, proceeding with rendering");
+        } else {
+            // Target is null or there was an error - cannot render
+            #[cfg(debug_assertions)]
+            println!("CRITICAL ERROR: Direct2D context has NULL target or error getting target. Cannot render.");
+            
+            // DO NOT attempt to call BeginDraw/EndDraw with a NULL target!
+            return;
         }
     }
     
-    println!("[RUST] Debug: Exiting generate_d2d_scene");
+    // Only if we have a valid target, proceed with rendering
+    if can_safely_render {
+        unsafe {
+            // Now it's safe to begin drawing
+            rt.BeginDraw();
+            
+            // Setup rendering parameters
+            let old_mode = rt.GetAntialiasMode();
+            let old_text_mode = rt.GetTextAntialiasMode();
+            
+            rt.SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+            rt.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
+            
+            // Clear the screen with a white background
+            rt.Clear(Some(&D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }));
+            
+            // Create a D2D scene generator
+            let generator = D2dSceneGenerator {
+                dom,
+                scale,
+                width,
+                height,
+                devtools: devtool_config,
+            };
+            
+            // Render the actual document content
+            generator.generate_d2d_scene(rt);
+            
+            // Restore previous antialias modes before ending the draw
+            rt.SetAntialiasMode(old_mode);
+            rt.SetTextAntialiasMode(old_text_mode);
+            
+            let mut tag1: u64 = 0;
+            let mut tag2: u64 = 0;
+            
+            // Handle any potential errors from EndDraw
+            let hr = rt.EndDraw(Some(&mut tag1), Some(&mut tag2));
+            
+            if let Err(e) = hr {
+                // Log the error if available in debug builds
+                #[cfg(debug_assertions)]
+                println!("EndDraw failed with error: 0x{:08X}", e.code().0);
+            }
+        }
+    }
 }
 
 pub struct D2dSceneGenerator<'dom> {
@@ -198,13 +263,13 @@ impl D2dSceneGenerator<'_> {
     /// Generate a Direct2D scene from the DOM
     pub fn generate_d2d_scene(&self, rt: &mut ID2D1DeviceContext) {
         unsafe {
-            // Clear the render target with white background
-            rt.Clear(Some(&D2D1_COLOR_F {
-                r: 1.0,
-                g: 1.0,
-                b: 1.0,
-                a: 1.0,
-            }));
+            // IMPORTANT: Don't call Clear() here - it's already called in iframe.rs
+            // rt.Clear(Some(&D2D1_COLOR_F {
+            //     r: 1.0,
+            //     g: 1.0,
+            //     b: 1.0,
+            //     a: 1.0,
+            // }));
 
             // Set the transform to account for scale
             let scale_matrix = Matrix3x2 {
@@ -2016,6 +2081,7 @@ impl ElementCx<'_> {
             rt,
             || has_outset_shadow,
             |elem_cx, rt| {
+                // First draw any outset shadows
                 for shadow in box_shadow.iter().filter(|s| !s.inset) {
                     let shadow_color = shadow
                         .base
@@ -2084,7 +2150,7 @@ impl ElementCx<'_> {
                             // For this simplified implementation, just draw the rounded rect
                             rt.FillRoundedRectangle(&rounded_rect, &shadow_brush);
                         } else {
-                            // Draw a simple rectangle for the shadow
+                            // Use a simple rectangle for the shadow
                             let rect = D2D_RECT_F {
                                 left: 0.0,
                                 top: 0.0,
@@ -2098,8 +2164,84 @@ impl ElementCx<'_> {
                         rt.SetTransform(&original_transform);
                     }
                 }
-            },
-        );
+
+                // Now check if we need to handle radio button type
+                if let Some(attr_type) = elem_cx.node.attr(local_name!("type")) {
+                    if attr_type == "radio" {
+                        let scale = elem_cx.scale;
+                        let checked = elem_cx.element.checkbox_input_checked().unwrap_or(false);
+
+                        unsafe {
+                            // Create necessary brushes only when needed
+                            let accent_color = if elem_cx.node.attr(local_name!("disabled")).is_some() {
+                                Color::from_rgba8(209, 209, 209, 255)
+                            } else {
+                                elem_cx.style.clone_color().as_srgb_color()
+                            };
+
+                            let accent_brush = elem_cx
+                                .context
+                                .create_solid_color_brush(rt, accent_color.to_d2d_color())
+                                .unwrap();
+
+                            let white_brush = elem_cx
+                                .context
+                                .create_solid_color_brush(
+                                    rt,
+                                    Color::from_rgba8(255, 255, 255, 255).to_d2d_color(),
+                                )
+                                .unwrap();
+                            
+                            // Calculate center of the radio button
+                            let center_x = elem_cx.frame.border_box.width() as f32 / 2.0;
+                            let center_y = elem_cx.frame.border_box.height() as f32 / 2.0;
+                            let center = D2D_POINT_2F {
+                                x: center_x,
+                                y: center_y,
+                            };
+
+                            // Create ellipses for the radio button
+                            let outer_ellipse = D2D1_ELLIPSE {
+                                point: center,
+                                radiusX: (8.0 * scale) as f32,
+                                radiusY: (8.0 * scale) as f32,
+                            };
+
+                            let gap_ellipse = D2D1_ELLIPSE {
+                                point: center,
+                                radiusX: (6.0 * scale) as f32,
+                                radiusY: (6.0 * scale) as f32,
+                            };
+
+                            let inner_ellipse = D2D1_ELLIPSE {
+                                point: center,
+                                radiusX: (4.0 * scale) as f32,
+                                radiusY: (4.0 * scale) as f32,
+                            };
+
+                            if checked {
+                                // Draw checked radio button with concentric circles
+                                rt.FillEllipse(&outer_ellipse, &accent_brush);
+                                rt.FillEllipse(&gap_ellipse, &white_brush);
+                                rt.FillEllipse(&inner_ellipse, &accent_brush);
+                            } else {
+                                // Draw unchecked radio button
+                                let gray_brush = elem_cx
+                                    .context
+                                    .create_solid_color_brush(
+                                        rt,
+                                        Color::from_rgba8(128, 128, 128, 255).to_d2d_color(),
+                                    )
+                                    .unwrap();
+
+                                rt.FillEllipse(&outer_ellipse, &gray_brush);
+                                rt.FillEllipse(&gap_ellipse, &white_brush);
+                            }
+                        }
+                    }
+                }
+            }
+        )
     }
 
     fn draw_inset_box_shadow(&self, rt: &mut ID2D1DeviceContext) {
@@ -2440,161 +2582,169 @@ impl ElementCx<'_> {
     }
 
     fn draw_input(&self, rt: &mut ID2D1DeviceContext) {
-        if self.node.local_name() == "input" {
-            let Some(checked) = self.element.checkbox_input_checked() else {
-                return;
-            };
-            let disabled = self.node.attr(local_name!("disabled")).is_some();
+        // Skip expensive rendering operations for non-input elements
+        if self.node.local_name() != "input" {
+            return;
+        }
 
-            // TODO this should be coming from css accent-color, but I couldn't find how to retrieve it
-            let accent_color = if disabled {
-                Color::from_rgba8(209, 209, 209, 255)
-            } else {
-                self.style.clone_color().as_srgb_color()
-            };
+        // Performance optimization: Only render checkboxes and radio buttons
+        // Other input types don't need special rendering
+        let attr_type = self.node.attr(local_name!("type"));
+        if attr_type != Some("checkbox") && attr_type != Some("radio") {
+            return;
+        }
 
-            let scale = (self
-                .frame
-                .border_box
-                .width()
-                .min(self.frame.border_box.height())
-                - 4.0)
-                .max(0.0)
-                / 16.0;
+        let Some(checked) = self.element.checkbox_input_checked() else {
+            return;
+        };
+        let disabled = self.node.attr(local_name!("disabled")).is_some();
 
-            let attr_type = self.node.attr(local_name!("type"));
+        // TODO this should be coming from css accent-color, but I couldn't find how to retrieve it
+        let accent_color = if disabled {
+            Color::from_rgba8(209, 209, 209, 255)
+        } else {
+            self.style.clone_color().as_srgb_color()
+        };
 
-            unsafe {
-                // Create brushes for drawing
-                let accent_brush = self
-                    .context
-                    .create_solid_color_brush(rt, accent_color.to_d2d_color())
-                    .unwrap();
-                let white_brush = self
-                    .context
-                    .create_solid_color_brush(
-                        rt,
-                        Color::from_rgba8(255, 255, 255, 255).to_d2d_color(),
-                    )
-                    .unwrap();
+        let scale = (self
+            .frame
+            .border_box
+            .width()
+            .min(self.frame.border_box.height())
+            - 4.0)
+            .max(0.0)
+            / 16.0;
 
-                if attr_type == Some("checkbox") {
-                    // Create rounded rectangle for checkbox
-                    let rect = D2D_RECT_F {
-                        left: 0.0,
-                        top: 0.0,
-                        right: self.frame.border_box.width() as f32,
-                        bottom: self.frame.border_box.height() as f32,
+        unsafe {
+            // Performance optimization: Create brushes only once as they're needed for both types
+            let accent_brush = self
+                .context
+                .create_solid_color_brush(rt, accent_color.to_d2d_color())
+                .unwrap();
+            let white_brush = self
+                .context
+                .create_solid_color_brush(
+                    rt,
+                    Color::from_rgba8(255, 255, 255, 255).to_d2d_color(),
+                )
+                .unwrap();
+
+            if attr_type == Some("checkbox") {
+                // Create rounded rectangle for checkbox
+                let rect = D2D_RECT_F {
+                    left: 0.0,
+                    top: 0.0,
+                    right: self.frame.border_box.width() as f32,
+                    bottom: self.frame.border_box.height() as f32,
+                };
+
+                let rounded_rect = D2D1_ROUNDED_RECT {
+                    rect,
+                    radiusX: (scale * 2.0) as f32,
+                    radiusY: (scale * 2.0) as f32,
+                };
+
+                if checked {
+                    // Fill the checkbox with accent color
+                    rt.FillRoundedRectangle(&rounded_rect, &accent_brush);
+
+                    // Create checkmark
+                    let factory: ID2D1Factory = rt.GetFactory().unwrap();
+                    let path_geometry = factory.CreatePathGeometry().unwrap();
+                    let sink = path_geometry.Open().unwrap();
+
+                    // Create checkmark path (equivalent to BezPath in Vello)
+                    sink.BeginFigure(
+                        D2D_POINT_2F {
+                            x: (2.0 + 2.0) * scale as f32,
+                            y: (9.0 + 1.0) * scale as f32,
+                        },
+                        D2D1_FIGURE_BEGIN_HOLLOW,
+                    );
+
+                    sink.AddLine(D2D_POINT_2F {
+                        x: (6.0 + 2.0) * scale as f32,
+                        y: (13.0 + 1.0) * scale as f32,
+                    });
+
+                    sink.AddLine(D2D_POINT_2F {
+                        x: (14.0 + 2.0) * scale as f32,
+                        y: (2.0 + 1.0) * scale as f32,
+                    });
+
+                    sink.EndFigure(D2D1_FIGURE_END_OPEN);
+                    sink.Close().unwrap();
+
+                    // Create stroke style with round caps/joins (similar to Vello's Stroke)
+                    let stroke_props = D2D1_STROKE_STYLE_PROPERTIES {
+                        startCap: D2D1_CAP_STYLE_ROUND,
+                        endCap: D2D1_CAP_STYLE_ROUND,
+                        dashCap: D2D1_CAP_STYLE_ROUND,
+                        lineJoin: D2D1_LINE_JOIN_ROUND,
+                        miterLimit: 10.0,
+                        dashStyle: D2D1_DASH_STYLE_SOLID,
+                        dashOffset: 0.0,
                     };
 
-                    let rounded_rect = D2D1_ROUNDED_RECT {
-                        rect,
-                        radiusX: (scale * 2.0) as f32,
-                        radiusY: (scale * 2.0) as f32,
-                    };
+                    let stroke_style = factory.CreateStrokeStyle(&stroke_props, None).unwrap();
 
-                    if checked {
-                        // Fill the checkbox with accent color
-                        rt.FillRoundedRectangle(&rounded_rect, &accent_brush);
+                    // Draw white checkmark
+                    rt.DrawGeometry(
+                        &path_geometry,
+                        &white_brush,
+                        (2.0 * scale) as f32,
+                        &stroke_style,
+                    );
+                } else {
+                    // Fill with white and stroke with accent color
+                    rt.FillRoundedRectangle(&rounded_rect, &white_brush);
+                    rt.DrawRoundedRectangle(&rounded_rect, &accent_brush, 1.0, None);
+                }
+            } else if attr_type == Some("radio") {
+                // Calculate center of the radio button
+                let center_x = self.frame.border_box.width() as f32 / 2.0;
+                let center_y = self.frame.border_box.height() as f32 / 2.0;
+                let center = D2D_POINT_2F {
+                    x: center_x,
+                    y: center_y,
+                };
 
-                        // Create checkmark
-                        let factory: ID2D1Factory = rt.GetFactory().unwrap();
-                        let path_geometry = factory.CreatePathGeometry().unwrap();
-                        let sink = path_geometry.Open().unwrap();
+                // Create ellipses for the radio button (equivalent to Circle in Vello)
+                let outer_ellipse = D2D1_ELLIPSE {
+                    point: center,
+                    radiusX: (8.0 * scale) as f32,
+                    radiusY: (8.0 * scale) as f32,
+                };
 
-                        // Create checkmark path (equivalent to BezPath in Vello)
-                        sink.BeginFigure(
-                            D2D_POINT_2F {
-                                x: (2.0 + 2.0) * scale as f32,
-                                y: (9.0 + 1.0) * scale as f32,
-                            },
-                            D2D1_FIGURE_BEGIN_HOLLOW,
-                        );
+                let gap_ellipse = D2D1_ELLIPSE {
+                    point: center,
+                    radiusX: (6.0 * scale) as f32,
+                    radiusY: (6.0 * scale) as f32,
+                };
 
-                        sink.AddLine(D2D_POINT_2F {
-                            x: (6.0 + 2.0) * scale as f32,
-                            y: (13.0 + 1.0) * scale as f32,
-                        });
+                let inner_ellipse = D2D1_ELLIPSE {
+                    point: center,
+                    radiusX: (4.0 * scale) as f32,
+                    radiusY: (4.0 * scale) as f32,
+                };
 
-                        sink.AddLine(D2D_POINT_2F {
-                            x: (14.0 + 2.0) * scale as f32,
-                            y: (2.0 + 1.0) * scale as f32,
-                        });
+                if checked {
+                    // Draw checked radio button with concentric circles
+                    rt.FillEllipse(&outer_ellipse, &accent_brush);
+                    rt.FillEllipse(&gap_ellipse, &white_brush);
+                    rt.FillEllipse(&inner_ellipse, &accent_brush);
+                } else {
+                    // Draw unchecked radio button
+                    let gray_brush = self
+                        .context
+                        .create_solid_color_brush(
+                            rt,
+                            Color::from_rgba8(128, 128, 128, 255).to_d2d_color(),
+                        )
+                        .unwrap();
 
-                        sink.EndFigure(D2D1_FIGURE_END_OPEN);
-                        sink.Close().unwrap();
-
-                        // Create stroke style with round caps/joins (similar to Vello's Stroke)
-                        let stroke_props = D2D1_STROKE_STYLE_PROPERTIES {
-                            startCap: D2D1_CAP_STYLE_ROUND,
-                            endCap: D2D1_CAP_STYLE_ROUND,
-                            dashCap: D2D1_CAP_STYLE_ROUND,
-                            lineJoin: D2D1_LINE_JOIN_ROUND,
-                            miterLimit: 10.0,
-                            dashStyle: D2D1_DASH_STYLE_SOLID,
-                            dashOffset: 0.0,
-                        };
-
-                        let stroke_style = factory.CreateStrokeStyle(&stroke_props, None).unwrap();
-
-                        // Draw white checkmark
-                        rt.DrawGeometry(
-                            &path_geometry,
-                            &white_brush,
-                            (2.0 * scale) as f32,
-                            &stroke_style,
-                        );
-                    } else {
-                        // Fill with white and stroke with accent color
-                        rt.FillRoundedRectangle(&rounded_rect, &white_brush);
-                        rt.DrawRoundedRectangle(&rounded_rect, &accent_brush, 1.0, None);
-                    }
-                } else if attr_type == Some("radio") {
-                    // Calculate center of the radio button
-                    let center_x = self.frame.border_box.width() as f32 / 2.0;
-                    let center_y = self.frame.border_box.height() as f32 / 2.0;
-                    let center = D2D_POINT_2F {
-                        x: center_x,
-                        y: center_y,
-                    };
-
-                    // Create ellipses for the radio button (equivalent to Circle in Vello)
-                    let outer_ellipse = D2D1_ELLIPSE {
-                        point: center,
-                        radiusX: (8.0 * scale) as f32,
-                        radiusY: (8.0 * scale) as f32,
-                    };
-
-                    let gap_ellipse = D2D1_ELLIPSE {
-                        point: center,
-                        radiusX: (6.0 * scale) as f32,
-                        radiusY: (6.0 * scale) as f32,
-                    };
-
-                    let inner_ellipse = D2D1_ELLIPSE {
-                        point: center,
-                        radiusX: (4.0 * scale) as f32,
-                        radiusY: (4.0 * scale) as f32,
-                    };
-
-                    if checked {
-                        // Draw checked radio button with concentric circles
-                        rt.FillEllipse(&outer_ellipse, &accent_brush);
-                        rt.FillEllipse(&gap_ellipse, &white_brush);
-                        rt.FillEllipse(&inner_ellipse, &accent_brush);
-                    } else {
-                        // Draw unchecked radio button
-                        let gray_brush = self
-                            .context
-                            .create_solid_color_brush(
-                                rt,
-                                Color::from_rgba8(128, 128, 128, 255).to_d2d_color(),
-                            )
-                            .unwrap();
-
-                        rt.FillEllipse(&outer_ellipse, &gray_brush);
-                        rt.FillEllipse(&gap_ellipse, &white_brush);
-                    }
+                    rt.FillEllipse(&outer_ellipse, &gray_brush);
+                    rt.FillEllipse(&gap_ellipse, &white_brush);
                 }
             }
         }

@@ -98,6 +98,12 @@ namespace MarkdownTest
         static private readonly int _fpsUpdateInterval = 500; // Update FPS display every 500ms
         static private Dictionary<string, PerformanceMetric> _performanceMetrics = new Dictionary<string, PerformanceMetric>();
 
+        // Circuit breaker variables
+        private static int _targetReconfigurationAttempts = 0;
+        private static readonly int _maxReconfigurationAttempts = 3;
+        private static DateTime _lastReconfigurationTime = DateTime.MinValue;
+        private static TimeSpan _reconfigurationCooldown = TimeSpan.FromSeconds(5);
+
         public static void Initialize(IntPtr hWndMain)
         {
             _hWndMain = hWndMain;
@@ -1482,10 +1488,31 @@ namespace MarkdownTest
                 bool targetBitmapIsNull = (m_pD2DTargetBitmap == null);
                 bool targetNeedsReconfiguring = (targetIsNull || targetBitmapIsNull) && m_pDXGISwapChain1 != null;
                 
+                // CIRCUIT BREAKER: Prevent infinite reconfiguration loop
+                TimeSpan timeSinceLastReconfiguration = DateTime.Now - _lastReconfigurationTime;
+                bool canReconfigure = timeSinceLastReconfiguration > _reconfigurationCooldown;
+                
                 if (targetNeedsReconfiguring)
                 {
+                    // Check if we've hit the reconfiguration limit
+                    if (_targetReconfigurationAttempts >= _maxReconfigurationAttempts && !canReconfigure)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[CRITICAL] Circuit breaker activated - too many reconfiguration attempts ({_targetReconfigurationAttempts}). Skipping rendering until cooldown period elapsed.");
+                        return;
+                    }
+                    
+                    // If we're past the cooldown period, reset the counter
+                    if (canReconfigure)
+                    {
+                        _targetReconfigurationAttempts = 0;
+                    }
+                    
+                    // Track reconfiguration attempts and time
+                    _targetReconfigurationAttempts++;
+                    _lastReconfigurationTime = DateTime.Now;
+                    
                     // If target bitmap is missing but we have a swap chain, try to reconfigure
-                    System.Diagnostics.Debug.WriteLine($"Attempting to reconfigure swap chain due to missing target. targetIsNull={targetIsNull}, targetBitmapIsNull={targetBitmapIsNull}");
+                    System.Diagnostics.Debug.WriteLine($"Attempting to reconfigure swap chain due to missing target. targetIsNull={targetIsNull}, targetBitmapIsNull={targetBitmapIsNull} (Attempt {_targetReconfigurationAttempts} of {_maxReconfigurationAttempts})");
                     
                     // CRITICAL FIX: Make sure the device context doesn't have a target set before reconfiguring
                     if (m_pD2DDeviceContext != null && !targetIsNull)
@@ -1548,6 +1575,9 @@ namespace MarkdownTest
                                     System.Diagnostics.Debug.WriteLine("[DEBUG] Target set successfully after reconfigure");
                                     SafeRelease(ref verifyTarget);
                                     targetIsNull = false;
+                                    
+                                    // Reset the counter since we were successful
+                                    _targetReconfigurationAttempts = 0;
                                 }
                                 else
                                 {
@@ -1578,7 +1608,7 @@ namespace MarkdownTest
                 {
                     try 
                     {
-                        // Verify target is set before clearing
+                        // Verify target is set before trying to render initial frame
                         ID2D1Image checkTarget = null;
                         m_pD2DDeviceContext.GetTarget(out checkTarget);
                         
@@ -1586,28 +1616,22 @@ namespace MarkdownTest
                         {
                             SafeRelease(ref checkTarget);
                             
-                            // Clear with white background to give immediate visual feedback
-                            System.Diagnostics.Debug.WriteLine("[DEBUG] Drawing initial background in CompositionTarget_Rendering");
-                            m_pD2DDeviceContext.BeginDraw();
-                            m_pD2DDeviceContext.Clear(new D2D1_COLOR_F() { r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f });
+                            // No need to call BeginDraw/EndDraw here anymore - let d2drender.rs handle it
+                            System.Diagnostics.Debug.WriteLine("[DEBUG] First frame, setting needs_render flag to true");
                             
-                            UInt64 tag1 = 0, tag2 = 0;
-                            m_pD2DDeviceContext.EndDraw(out tag1, out tag2);
-                            
+                            // Set a flag to trigger Tick() rendering
                             needsPresent = true;
-                            System.Diagnostics.Debug.WriteLine("[DEBUG] Initial background drawn in CompositionTarget_Rendering");
                         }
                         else
                         {
-                            System.Diagnostics.Debug.WriteLine("[DEBUG] WARNING: Cannot clear - NULL target is set");
+                            System.Diagnostics.Debug.WriteLine("[DEBUG] WARNING: First frame has NULL target");
                             // Skip rendering this frame
                             return;
                         }
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"Error during initial render clear: {ex.Message}");
-                        try { m_pD2DDeviceContext.EndDraw(out UInt64 _, out UInt64 _); } catch { }
+                        System.Diagnostics.Debug.WriteLine($"Error checking target for initial frame: {ex.Message}");
                         return; // Skip the rest of rendering for this frame
                     }
                 }
@@ -1787,14 +1811,26 @@ namespace MarkdownTest
                     GC.Collect();
                     GC.WaitForPendingFinalizers();
                     
-                    if (m_pDXGISwapChain1 != null)
+                    // CIRCUIT BREAKER: Only attempt recovery if we haven't exceeded our limit
+                    if (_targetReconfigurationAttempts < _maxReconfigurationAttempts || 
+                        (DateTime.Now - _lastReconfigurationTime) > _reconfigurationCooldown)
                     {
-                        hr = ConfigureSwapChain();
-                        if (hr == HRESULT.S_OK)
+                        if (m_pDXGISwapChain1 != null)
                         {
-                            System.Diagnostics.Debug.WriteLine("[DEBUG] Resource recovery successful");
-                            _rendered = false; // Force a redraw
+                            _targetReconfigurationAttempts++;
+                            _lastReconfigurationTime = DateTime.Now;
+                            
+                            hr = ConfigureSwapChain();
+                            if (hr == HRESULT.S_OK)
+                            {
+                                System.Diagnostics.Debug.WriteLine("[DEBUG] Resource recovery successful");
+                                _rendered = false; // Force a redraw
+                            }
                         }
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("[CRITICAL] Circuit breaker preventing recovery attempt - too many recent attempts");
                     }
                 }
                 catch (Exception recovery_ex)

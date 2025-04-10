@@ -751,7 +751,6 @@ impl IFrame {
                 Ok(doc) => doc,
                 Err(_) => {
                     self.log("Could not borrow document for rendering");
-                    *self.drawing_in_progress.borrow_mut() = false;
                     return Ok(());
                 }
             };
@@ -760,7 +759,6 @@ impl IFrame {
                 Ok(v) => v,
                 Err(_) => {
                     self.log("Could not lock viewport for rendering");
-                    *self.drawing_in_progress.borrow_mut() = false;
                     return Ok(());
                 }
             };
@@ -770,7 +768,6 @@ impl IFrame {
             // Skip rendering if viewport dimensions are invalid
             if viewport.window_size.0 == 0 || viewport.window_size.1 == 0 {
                 self.log(&format!("Invalid viewport dimensions: {}x{}", viewport.window_size.0, viewport.window_size.1));
-                *self.drawing_in_progress.borrow_mut() = false;
                 return Ok(());
             }
             
@@ -779,7 +776,6 @@ impl IFrame {
                 Ok(ctx) => ctx,
                 Err(_) => {
                     *self.needs_render.borrow_mut() = true;
-                    *self.drawing_in_progress.borrow_mut() = false;
                     self.log("Could not borrow device context for rendering");
                     return Ok(());
                 }
@@ -791,110 +787,60 @@ impl IFrame {
             
             // Use a safe approach to handle the Direct2D rendering
             unsafe {
-                // First ensure we're not already drawing
-                let mut tag1: u64 = 0;
-                let mut tag2: u64 = 0;
-
-                // Attempt to end any existing drawing session first
-                // If no session exists, this will gracefully fail
-                self.log("Checking for active drawing session...");
+                // Store the original rendering state - no longer needed as d2drender.rs handles this
+                // let original_antialias = device_context.GetAntialiasMode();
+                // let original_text_antialias = device_context.GetTextAntialiasMode();
                 
-                // We'll wrap this in its own catch_unwind to ensure we don't crash
-                if let Err(_) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    // Try to end any potentially in-progress drawing
-                    let _ = device_context.EndDraw(Some(&mut tag1), Some(&mut tag2));
-                })) {
-                    self.log("Error checking for drawing session, ignoring and continuing");
-                }
+                // Set up optimal rendering parameters - no longer needed as d2drender.rs handles this
+                // device_context.SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+                // device_context.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
                 
-                // Short sleep to allow D2D pipeline to stabilize
-                std::thread::sleep(std::time::Duration::from_millis(5));
+                // Clear the background - no longer needed as d2drender.rs handles this
+                // device_context.Clear(Some(&D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }));
                 
-                // Now start the actual drawing
-                self.log("Beginning new drawing session");
+                // BeginDraw no longer needed here as d2drender.rs handles it
+                // device_context.BeginDraw();
+                // self.log("BeginDraw called successfully");
                 
-                // Start the drawing session - BeginDraw() returns () not Result, no need to match on it
-                let draw_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    // Begin drawing
-                    device_context.BeginDraw();
-                    self.log("BeginDraw called successfully");
+                // Use a scope to ensure we release resources properly
+                let render_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    // Call the blitz-renderer-vello d2drender module directly
+                    // d2drender.rs now handles all BeginDraw/EndDraw internally
+                    d2drender::generate_d2d_scene(
+                        &mut *device_context,
+                        doc.as_ref(),
+                        viewport.scale_f64(),
+                        viewport.window_size.0, 
+                        viewport.window_size.1,
+                        devtools,
+                    );
                     
-                    // Call the blitz-renderer-vello d2drender module directly to handle the actual rendering
-                    // This is the key change - using the proper renderer instead of our custom implementation
-                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        self.log("Calling blitz-renderer-vello d2drender::generate_d2d_scene");
-                        
-                        // Use the imported d2drender module from blitz-renderer-vello
-                        d2drender::generate_d2d_scene(
-                            &mut *device_context, // Dereference to get ID2D1DeviceContext, then create a mutable reference
-                            doc.as_ref(),
-                            viewport.scale_f64(),
-                            viewport.window_size.0, 
-                            viewport.window_size.1,
-                            devtools,
-                        );
-                        
-                        self.log("Successfully completed d2drender::generate_d2d_scene call");
-                    })) {
-                        Ok(_) => self.log("Successfully rendered document"),
-                        Err(e) => {
-                            // Handle error from the renderer
-                            if let Some(s) = e.downcast_ref::<&str>() {
-                                self.log(&format!("Renderer panicked: {}", s));
-                            } else if let Some(s) = e.downcast_ref::<String>() {
-                                self.log(&format!("Renderer panicked: {}", s));
-                            } else {
-                                self.log("Renderer panicked with unknown error");
-                            }
-                            
-                            // If the renderer fails, draw a simple fallback instead
-                            // Clear with a light blue background
-                            device_context.Clear(Some(&D2D1_COLOR_F { r: 0.9, g: 0.9, b: 1.0, a: 1.0 }));
-                            
-                            // Draw a blue rectangle to indicate we're alive but the renderer failed
-                            if let Ok(err_brush) = device_context.CreateSolidColorBrush(
-                                &D2D1_COLOR_F { r: 0.0, g: 0.4, b: 0.8, a: 1.0 },
-                                Some(&windows::Win32::Graphics::Direct2D::D2D1_BRUSH_PROPERTIES {
-                                    opacity: 1.0,
-                                    transform: windows_numerics::Matrix3x2::identity(),
-                                })) {
-                                let err_rect = windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F {
-                                    left: 20.0 * viewport.scale_f64() as f32,
-                                    top: 20.0 * viewport.scale_f64() as f32,
-                                    right: 120.0 * viewport.scale_f64() as f32,
-                                    bottom: 80.0 * viewport.scale_f64() as f32,
-                                };
-                                device_context.FillRectangle(&err_rect, &err_brush);
-                                device_context.DrawRectangle(
-                                    &err_rect, 
-                                    &err_brush,
-                                    2.0 * viewport.scale_f64() as f32,
-                                    None
-                                );
-                            }
-                        }
-                    }
-                    
-                    // End drawing and flush
-                    self.log("Ending draw session...");
-                    let hr = device_context.EndDraw(Some(&mut tag1), Some(&mut tag2));
-                    self.log(&format!("EndDraw result: {:?}", hr));
+                    self.log("Successfully completed d2drender::generate_d2d_scene call");
                 }));
                 
-                // Handle drawing errors
-                if let Err(err) = draw_result {
-                    self.log(&format!("Panic during rendering: {:?}", err));
-                    
-                    // Try to end the drawing session gracefully
-                    if let Err(_) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        let _ = device_context.EndDraw(Some(&mut tag1), Some(&mut tag2));
-                    })) {
-                        self.log("Failed to clean up after drawing panic");
+                // Handle any rendering errors
+                if let Err(e) = render_result {
+                    // If rendering failed, log error details
+                    if let Some(s) = e.downcast_ref::<&str>() {
+                        self.log(&format!("Renderer panicked: {}", s));
+                    } else if let Some(s) = e.downcast_ref::<String>() {
+                        self.log(&format!("Renderer panicked: {}", s));
+                    } else {
+                        self.log("Renderer panicked with unknown error");
                     }
                     
-                    // Return a error with the appropriate HRESULT
-                    return Err(Error::new(windows::Win32::Foundation::E_UNEXPECTED, "Unexpected error during rendering"));
+                    // No need to provide fallback rendering here - d2drender.rs handles error recovery
+                    return Err(Error::new(windows::Win32::Foundation::E_FAIL, "Render failed"));
                 }
+                
+                // EndDraw no longer needed here as d2drender.rs handles it
+                // let mut tag1: u64 = 0;
+                // let mut tag2: u64 = 0;
+                // let hr = device_context.EndDraw(Some(&mut tag1), Some(&mut tag2));
+                
+                // No need to restore states as d2drender.rs handles this
+                // device_context.SetAntialiasMode(original_antialias);
+                // device_context.SetTextAntialiasMode(original_text_antialias);
             }
             
             Ok(())
