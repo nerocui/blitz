@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "BlitzTestApp (Package)": {
+      "commandName": "MsixPackage",
+      "nativeDebugging": true
+    },
+    "BlitzTestApp (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

@@ -328,7 +328,7 @@ namespace MarkdownTest
             UnloadPage();
             
             // CRITICAL FIX: Add more time for resource cleanup
-            System.Threading.Thread.Sleep(100);
+            // System.Threading.Thread.Sleep(100);
             
             // Force garbage collection before creating new resources
             GC.Collect();
@@ -392,7 +392,7 @@ namespace MarkdownTest
             if (hr == HRESULT.S_OK)
             {
                 // CRITICAL FIX: Add delay before configuring swap chain
-                System.Threading.Thread.Sleep(50);
+                // System.Threading.Thread.Sleep(50);
                 
                 hr = ConfigureSwapChain();
                 
@@ -457,7 +457,7 @@ namespace MarkdownTest
                         }
                         
                         SafeRelease(ref m_pD2DTargetBitmap);
-                        System.Threading.Thread.Sleep(100);
+                        // System.Threading.Thread.Sleep(100);
                         
                         hr = ConfigureSwapChain();
                         System.Diagnostics.Debug.WriteLine($"[DEBUG] Reconfiguration result: 0x{hr:X}");
@@ -505,7 +505,7 @@ namespace MarkdownTest
                         System.Diagnostics.Debug.WriteLine($"Setting initial renderer size to {initialWidth}x{initialHeight}");
                         
                         // CRITICAL FIX: Wait longer to ensure the swap chain and target are fully configured
-                        System.Threading.Thread.Sleep(100);
+                        // System.Threading.Thread.Sleep(100);
                         
                         // Check if target is ready before resizing
                         bool targetReady = false;
@@ -529,7 +529,7 @@ namespace MarkdownTest
                         {
                             System.Diagnostics.Debug.WriteLine("Target not ready, reconfiguring swap chain");
                             hr = ConfigureSwapChain();
-                            System.Threading.Thread.Sleep(100);
+                            // System.Threading.Thread.Sleep(100);
                             
                             // Verify target again
                             try
@@ -564,7 +564,7 @@ namespace MarkdownTest
                             }
                             
                             // Wait a short time before doing the initial render
-                            System.Threading.Thread.Sleep(100);
+                            // System.Threading.Thread.Sleep(100);
                             
                             // CRITICAL FIX: Explicitly call Render immediately after setup to initialize content
                             if (_markdown != null)
@@ -584,7 +584,7 @@ namespace MarkdownTest
                                 SafeRelease(ref m_pDXGISwapChain1);
                             }
                             
-                            System.Threading.Thread.Sleep(100);
+                            // System.Threading.Thread.Sleep(100);
                             GC.Collect();
                             GC.WaitForPendingFinalizers();
                             
@@ -657,7 +657,7 @@ namespace MarkdownTest
                     GC.WaitForPendingFinalizers();
                     
                     // Allow a moment for cleanup to complete
-                    System.Threading.Thread.Sleep(50);
+                    // System.Threading.Thread.Sleep(50);
                 }
                 catch (Exception ex)
                 {
@@ -874,7 +874,7 @@ namespace MarkdownTest
                         GC.WaitForPendingFinalizers();
                         
                         // Wait a small amount of time to ensure GPU operations complete
-                        System.Threading.Thread.Sleep(50);
+                        // System.Threading.Thread.Sleep(50);
                         
                         hr = m_pDXGISwapChain1.ResizeBuffers(
                             2,
@@ -928,7 +928,7 @@ namespace MarkdownTest
                 }
                 
                 // Wait for GPU to finish all operations before trying to access the swap chain buffer
-                System.Threading.Thread.Sleep(16);
+                // System.Threading.Thread.Sleep(16);
                 
                 // Setup bitmap properties
                 D2D1_BITMAP_PROPERTIES1 bitmapProperties = new D2D1_BITMAP_PROPERTIES1();
@@ -975,13 +975,7 @@ namespace MarkdownTest
                                 
                                 // CRITICAL FIX: Make sure we set the target on the device context
                                 m_pD2DDeviceContext.SetTarget(m_pD2DTargetBitmap);
-                                
-                                // Draw a white background so we at least see something
-                                m_pD2DDeviceContext.BeginDraw();
-                                m_pD2DDeviceContext.Clear(new D2D1_COLOR_F() { r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f });
-                                UInt64 tag1 = 0, tag2 = 0;
-                                m_pD2DDeviceContext.EndDraw(out tag1, out tag2);
-                                
+
                                 // Present immediately to show something on screen
                                 hr = m_pDXGISwapChain1.Present(1, 0);
                                 if (hr != HRESULT.S_OK)
@@ -1133,7 +1127,7 @@ namespace MarkdownTest
                     GC.WaitForPendingFinalizers();
                     
                     // Wait a small amount of time to ensure GPU operations complete
-                    System.Threading.Thread.Sleep(50);
+                    // System.Threading.Thread.Sleep(50);
                 }
                 catch (Exception ex)
                 {
@@ -1169,7 +1163,7 @@ namespace MarkdownTest
                             // Force another GC cycle
                             GC.Collect();
                             GC.WaitForPendingFinalizers();
-                            System.Threading.Thread.Sleep(100);
+                            // System.Threading.Thread.Sleep(100);
                             
                             // Try resize again
                             hr = m_pDXGISwapChain1.ResizeBuffers(
@@ -1408,7 +1402,7 @@ namespace MarkdownTest
                             System.Diagnostics.Debug.WriteLine($"Rendering markdown content of length: {_markdown.Length}");
                             
                             // Add a small delay before initial render to ensure the DOM is fully initialized
-                            System.Threading.Thread.Sleep(50);
+                            // System.Threading.Thread.Sleep(50);
                             
                             // Start performance tracking for render operation
                             BeginTimeMeasure("Render");
@@ -1421,7 +1415,7 @@ namespace MarkdownTest
                             
                             // After successful render, add another small delay before ticking 
                             // to ensure everything is properly set up
-                            System.Threading.Thread.Sleep(16);
+                            // System.Threading.Thread.Sleep(16);
                         }
                         catch (Exception ex)
                         {
@@ -1534,7 +1528,7 @@ namespace MarkdownTest
                     }
                     
                     // Wait before reconfiguring
-                    System.Threading.Thread.Sleep(50);
+                    // System.Threading.Thread.Sleep(50);
                     
                     hr = ConfigureSwapChain();
                     if (hr != HRESULT.S_OK)
@@ -1681,7 +1675,7 @@ namespace MarkdownTest
                                 {
                                     // Force target reset
                                     m_pD2DDeviceContext.SetTarget(null);
-                                    System.Threading.Thread.Sleep(50);
+                                    // System.Threading.Thread.Sleep(50);
                                     m_pD2DDeviceContext.SetTarget(m_pD2DTargetBitmap);
                                     
                                     // Verify the target was set
@@ -1691,13 +1685,6 @@ namespace MarkdownTest
                                     {
                                         System.Diagnostics.Debug.WriteLine("[DEBUG] Target successfully reset after NULL target error");
                                         SafeRelease(ref verifyTarget);
-                                        
-                                        // Draw a white background to ensure we have something visible
-                                        m_pD2DDeviceContext.BeginDraw();
-                                        m_pD2DDeviceContext.Clear(new D2D1_COLOR_F() { r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f });
-                                        UInt64 tag1 = 0, tag2 = 0;
-                                        m_pD2DDeviceContext.EndDraw(out tag1, out tag2);
-                                        
                                         needsPresent = true;
                                         System.Diagnostics.Debug.WriteLine("[DEBUG] Drew white background after recovery");
                                     }
@@ -1805,7 +1792,7 @@ namespace MarkdownTest
                     SafeRelease(ref m_pD2DTargetBitmap);
                     
                     // Wait a bit before recreating resources
-                    System.Threading.Thread.Sleep(100);
+                    // System.Threading.Thread.Sleep(100);
                     
                     // Force GC
                     GC.Collect();

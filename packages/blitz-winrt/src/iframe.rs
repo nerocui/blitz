@@ -183,25 +183,25 @@ impl IFrame {
     
     /// Send a log message to the C# side if a logger is available
     pub fn log(&self, message: &str) {
-        if let Some(logger) = self.logger.borrow().as_ref() {
-            // Use catch_unwind to prevent panics in logging from crashing the app
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                // Convert the &str to an HSTRING before passing to LogMessage
-                let hstring_message = windows::core::HSTRING::from(message);
-                logger.LogMessage(&hstring_message)
-            }));
+        // if let Some(logger) = self.logger.borrow().as_ref() {
+        //     // Use catch_unwind to prevent panics in logging from crashing the app
+        //     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        //         // Convert the &str to an HSTRING before passing to LogMessage
+        //         let hstring_message = windows::core::HSTRING::from(message);
+        //         logger.LogMessage(&hstring_message)
+        //     }));
             
-            if let Err(_) = result {
-                // If logging itself panics, we can't do much but silently continue
-                // In a debug build, we might still want to see these failures
-                #[cfg(debug_assertions)]
-                eprintln!("[IFRAME ERROR] Panic while trying to log: {}", message);
-            }
-        } else {
-            // Only fall back to eprintln in debug mode
-            #[cfg(debug_assertions)]
-            eprintln!("[IFRAME] No logger attached: {}", message);
-        }
+        //     if let Err(_) = result {
+        //         // If logging itself panics, we can't do much but silently continue
+        //         // In a debug build, we might still want to see these failures
+        //         #[cfg(debug_assertions)]
+        //         eprintln!("[IFRAME ERROR] Panic while trying to log: {}", message);
+        //     }
+        // } else {
+        //     // Only fall back to eprintln in debug mode
+        //     #[cfg(debug_assertions)]
+        //     eprintln!("[IFRAME] No logger attached: {}", message);
+        // }
     }
     
     /// Loads and renders markdown content

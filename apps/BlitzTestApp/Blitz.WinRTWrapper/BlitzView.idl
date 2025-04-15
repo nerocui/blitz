@@ -1,0 +1,9 @@
+namespace Blitz_WinRTWrapper
+{
+    [default_interface]
+    runtimeclass BlitzView : Microsoft.UI.Xaml.Controls.Control
+    {
+        BlitzView();
+        String Markdown;
+    }
+}
