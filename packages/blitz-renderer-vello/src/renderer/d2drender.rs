@@ -139,6 +139,11 @@ impl Matrix3x2Ext for Matrix3x2 {
     }
 }
 
+// Add a flag to detect window resizing
+static RESIZE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+static LAST_RESIZE_TIME: AtomicUsize = AtomicUsize::new(0);
+static CONTINUOUS_RENDER_FRAMES_AFTER_RESIZE: AtomicUsize = AtomicUsize::new(0);
+
 /// Generate a d2d scene from a BaseDocument
 pub fn generate_d2d_scene(
     rt: &mut ID2D1DeviceContext,
@@ -148,8 +153,65 @@ pub fn generate_d2d_scene(
     height: u32,
     devtool_config: Devtools,
 ) {
-    // Performance optimization: Check if we need to redraw the entire scene
-    // Only redraw if forced or if hover node has changed
+    // Get current timestamp for resize timing
+    let current_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as usize;
+    
+    // Track if a resize has occurred by comparing dimensions
+    let current_width = width as usize;
+    let current_height = height as usize;
+    let last_width = LAST_WIDTH.load(atomic::Ordering::SeqCst);
+    let last_height = LAST_HEIGHT.load(atomic::Ordering::SeqCst);
+    
+    let size_changed = current_width != last_width || current_height != last_height;
+    
+    // Update size tracking
+    if size_changed {
+        LAST_WIDTH.store(current_width, atomic::Ordering::SeqCst);
+        LAST_HEIGHT.store(current_height, atomic::Ordering::SeqCst);
+        
+        // Set resize in progress and timestamp
+        RESIZE_IN_PROGRESS.store(true, atomic::Ordering::SeqCst);
+        LAST_RESIZE_TIME.store(current_time, atomic::Ordering::SeqCst);
+        
+        // Force full redraw during resize
+        FORCE_REDRAW.store(true, atomic::Ordering::SeqCst);
+        
+        // Reset continuous render counter
+        CONTINUOUS_RENDER_FRAMES_AFTER_RESIZE.store(0, atomic::Ordering::SeqCst);
+        
+        #[cfg(debug_assertions)]
+        println!("Resize detected: {}x{} -> {}x{}", last_width, last_height, current_width, current_height);
+    }
+    
+    // Check if we need continuous rendering after resize
+    let resize_time_passed = current_time - LAST_RESIZE_TIME.load(atomic::Ordering::SeqCst);
+    if RESIZE_IN_PROGRESS.load(atomic::Ordering::SeqCst) {
+        if resize_time_passed > 200 {
+            // If 200ms have passed since last resize event, start the continuous render frames
+            let frame_count = CONTINUOUS_RENDER_FRAMES_AFTER_RESIZE.fetch_add(1, atomic::Ordering::SeqCst);
+            
+            // After 10 continuous frames, turn off resize mode
+            if frame_count >= 10 {
+                RESIZE_IN_PROGRESS.store(false, atomic::Ordering::SeqCst);
+                CONTINUOUS_RENDER_FRAMES_AFTER_RESIZE.store(0, atomic::Ordering::SeqCst);
+                #[cfg(debug_assertions)]
+                println!("Resize recovery completed after {} continuous frames", frame_count);
+            } else {
+                // While in recovery mode, force redraw for each frame
+                FORCE_REDRAW.store(true, atomic::Ordering::SeqCst);
+                #[cfg(debug_assertions)]
+                println!("Resize recovery frame {}/10", frame_count + 1);
+            }
+        } else {
+            // Still within the debounce period, keep resizing flag active
+            FORCE_REDRAW.store(true, atomic::Ordering::SeqCst);
+        }
+    }
+    
+    // Also get the hover node for normal rendering decisions
     let current_hover_node = match dom.get_hover_node_id() {
         Some(id) => id,
         None => 0,
@@ -157,13 +219,22 @@ pub fn generate_d2d_scene(
     
     let last_hover = LAST_HOVER_NODE.load(atomic::Ordering::SeqCst);
     let force_redraw = FORCE_REDRAW.swap(false, atomic::Ordering::SeqCst);
+    let resize_active = RESIZE_IN_PROGRESS.load(atomic::Ordering::SeqCst);
     
-    if !force_redraw && last_hover == current_hover_node && last_hover != 0 {
-        // Nothing changed, no need to redraw
+    // Decide whether to render:
+    // 1. If forced redraw is set
+    // 2. If resize is in progress or recovery period
+    // 3. If hover state changed
+    let should_render = force_redraw || 
+                        resize_active || 
+                        (last_hover != current_hover_node && (current_hover_node != 0 || last_hover != 0));
+    
+    if !should_render {
+        // Nothing meaningful changed, skip rendering
         return;
     }
     
-    // Update last hover node for next frame
+    // Update hover tracking regardless
     LAST_HOVER_NODE.store(current_hover_node, atomic::Ordering::SeqCst);
     
     // Reset clipping counters
@@ -2052,8 +2123,6 @@ impl ElementCx<'_> {
                 };
                 rt.FillRectangle(&rect, &brush);
             }
-
-            // Note: A complete implementation would use a custom effect or shader to create a true conic gradient
         }
     }
 

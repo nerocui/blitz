@@ -1,6 +1,8 @@
 use std::sync::atomic::{self, AtomicUsize, AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::cell::RefCell;
+use std::time::{Instant, Duration};
+use windows::Win32::Foundation::E_FAIL; // Add E_FAIL import
 
 // Add the static variables for caching
 static LAST_HOVER_NODE: AtomicUsize = AtomicUsize::new(0);
@@ -11,6 +13,10 @@ static LAST_SCROLL_Y: AtomicUsize = AtomicUsize::new(0);
 static LAST_WIDTH: AtomicUsize = AtomicUsize::new(0);
 static LAST_HEIGHT: AtomicUsize = AtomicUsize::new(0);
 static RENDERING_COUNT: AtomicUsize = AtomicUsize::new(0);
+static DROPPED_FRAMES: AtomicUsize = AtomicUsize::new(0);
+static CONSECUTIVE_DROPS: AtomicUsize = AtomicUsize::new(0);
+// Add a resize happened flag to ensure we render after resize
+static RESIZE_HAPPENED: AtomicBool = AtomicBool::new(false);
 
 use blitz_html::HtmlDocument;
 use blitz_traits::{
@@ -183,25 +189,25 @@ impl IFrame {
     
     /// Send a log message to the C# side if a logger is available
     pub fn log(&self, message: &str) {
-        if let Some(logger) = self.logger.borrow().as_ref() {
-            // Use catch_unwind to prevent panics in logging from crashing the app
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                // Convert the &str to an HSTRING before passing to LogMessage
-                let hstring_message = windows::core::HSTRING::from(message);
-                logger.LogMessage(&hstring_message)
-            }));
+        // if let Some(logger) = self.logger.borrow().as_ref() {
+        //     // Use catch_unwind to prevent panics in logging from crashing the app
+        //     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        //         // Convert the &str to an HSTRING before passing to LogMessage
+        //         let hstring_message = windows::core::HSTRING::from(message);
+        //         logger.LogMessage(&hstring_message)
+        //     }));
             
-            if let Err(_) = result {
-                // If logging itself panics, we can't do much but silently continue
-                // In a debug build, we might still want to see these failures
-                #[cfg(debug_assertions)]
-                eprintln!("[IFRAME ERROR] Panic while trying to log: {}", message);
-            }
-        } else {
-            // Only fall back to eprintln in debug mode
-            #[cfg(debug_assertions)]
-            eprintln!("[IFRAME] No logger attached: {}", message);
-        }
+        //     if let Err(_) = result {
+        //         // If logging itself panics, we can't do much but silently continue
+        //         // In a debug build, we might still want to see these failures
+        //         #[cfg(debug_assertions)]
+        //         eprintln!("[IFRAME ERROR] Panic while trying to log: {}", message);
+        //     }
+        // } else {
+        //     // Only fall back to eprintln in debug mode
+        //     #[cfg(debug_assertions)]
+        //     eprintln!("[IFRAME] No logger attached: {}", message);
+        // }
     }
     
     /// Loads and renders markdown content
@@ -253,33 +259,61 @@ impl IFrame {
     
     /// Update viewport dimensions and re-render
     pub fn resize(&self, width: u32, height: u32) -> Result<()> {
-        // If no content has been initialized, just update viewport size without rendering
-        if !*self.content_initialized.borrow() {
-            let mut viewport = self.viewport.lock().unwrap();
-            viewport.window_size = (width, height);
+        self.log(&format!("IFrame::resize({}, {})", width, height));
+        
+        if width == 0 || height == 0 {
+            self.log("Ignoring resize with zero dimension");
             return Ok(());
         }
         
+        // Set the resize flag to true - this will be checked in render_if_needed
+        RESIZE_HAPPENED.store(true, Ordering::SeqCst);
+        self.log("Setting RESIZE_HAPPENED flag");
+        
         // Update viewport dimensions
         {
-            let mut viewport = self.viewport.lock().unwrap();
+            let mut viewport = match self.viewport.try_lock() {
+                Ok(viewport) => viewport,
+                Err(_) => {
+                    self.log("Failed to lock viewport for resize");
+                    return Err(Error::new(E_FAIL, "Failed to lock viewport"));
+                }
+            };
+            
             viewport.window_size = (width, height);
         }
         
-        // Update the DOM with new viewport
+        // Mark that we need to render with the new size
+        *self.needs_render.borrow_mut() = true;
+        
+        // Update the document with the new size
         {
-            let mut doc = self.doc.borrow_mut();
-            let viewport = self.viewport.lock().unwrap();
-            doc.as_mut().set_viewport(viewport.clone());
-            doc.as_mut().resolve();
+            let mut doc = match self.doc.try_borrow_mut() {
+                Ok(doc) => doc,
+                Err(_) => {
+                    self.log("Failed to borrow document for resize");
+                    return Err(Error::new(E_FAIL, "Failed to borrow document"));
+                }
+            };
+            
+            // Set the new viewport size in the document
+            {
+                let viewport = match self.viewport.try_lock() {
+                    Ok(viewport) => viewport.clone(),
+                    Err(_) => {
+                        self.log("Failed to lock viewport for updating document");
+                        return Err(Error::new(E_FAIL, "Failed to lock viewport"));
+                    }
+                };
+                
+                // Update the document with the new viewport dimensions
+                doc.as_mut().set_viewport(viewport);
+                doc.as_mut().resolve();
+            }
         }
         
-        // IMPORTANT: Always force a render after resize
-        *self.needs_render.borrow_mut() = true;
-        self.log(&format!("Resizing to {}x{}, forcing render", width, height));
-        
-        // Render with updated dimensions
-        self.render()
+        self.log(&format!("Resize complete to {}x{}", width, height));
+        Ok(())
     }
     
     /// Handle mouse move events, dispatch to DOM
@@ -711,13 +745,55 @@ impl IFrame {
             return Ok(());
         }
         
-        // 2. Early exit conditions
+        // 2. Frame dropping: Check if we're already rendering, and if so, drop this frame
         if *self.drawing_in_progress.borrow() {
-            self.log("Drawing already in progress, skipping render");
-            return Ok(());
+            // Keep track of dropped frames
+            let dropped = DROPPED_FRAMES.fetch_add(1, Ordering::SeqCst) + 1;
+            let consecutive = CONSECUTIVE_DROPS.fetch_add(1, Ordering::SeqCst) + 1;
+            
+            // Log less frequently to avoid spam
+            if consecutive == 1 || consecutive % 10 == 0 {
+                self.log(&format!("Dropping frame - previous frame still rendering. Total dropped: {}, Consecutive: {}", 
+                                  dropped, consecutive));
+            }
+            
+            // Force a render if we've dropped too many consecutive frames
+            // to avoid complete stalling in pathological cases
+            if consecutive > 5 {
+                self.log(&format!("Force rendering after {} consecutive dropped frames", consecutive));
+                // We'll continue with the render below
+            } else {
+                // Skip this frame
+                return Ok(());
+            }
+        } else {
+            // Reset consecutive drops counter since we're rendering this frame
+            CONSECUTIVE_DROPS.store(0, Ordering::SeqCst);
         }
         
-        // 3. Evaluate if rendering is needed by checking state changes
+        // 3. Check for resize event and handle special post-resize rendering
+        let resize_happened = RESIZE_HAPPENED.load(Ordering::SeqCst);
+        if resize_happened {
+            // After a resize, we need to force continuous rendering for a short time
+            // to ensure content is properly displayed (fixes white flash issue)
+            self.log("Resize detected - forcing render");
+            
+            // Reset the flag after a few frames to avoid infinite rendering
+            static RESIZE_FRAME_COUNTER: AtomicUsize = AtomicUsize::new(0);
+            let counter = RESIZE_FRAME_COUNTER.fetch_add(1, Ordering::SeqCst);
+            
+            // Reset flag after 10 consecutive renders
+            if counter >= 10 {
+                RESIZE_HAPPENED.store(false, Ordering::SeqCst);
+                RESIZE_FRAME_COUNTER.store(0, Ordering::SeqCst);
+                self.log("Resize recovery completed - returning to normal rendering");
+            }
+            
+            // Always force render during resize recovery
+            *self.needs_render.borrow_mut() = true;
+        }
+        
+        // 4. Evaluate if rendering is needed by checking state changes
         let should_render = {
             // Check if rendering was explicitly requested
             let needs_render = *self.needs_render.borrow();
@@ -808,14 +884,14 @@ impl IFrame {
             }
         };
         
-        // 4. Skip rendering if nothing changed
+        // 5. Skip rendering if nothing changed
         if !should_render {
             // Make sure we reset the needs_render flag even if we skip rendering
             *self.needs_render.borrow_mut() = false;
             return Ok(());
         }
         
-        // 5. Acquire device context lock
+        // 6. Acquire device context lock
         let _device_lock = match self.device_context_lock.try_lock() {
             Ok(lock) => lock,
             Err(_) => {
@@ -824,11 +900,11 @@ impl IFrame {
             }
         };
         
-        // 6. Reset needs_render flag and set drawing_in_progress flag
+        // 7. Reset needs_render flag and set drawing_in_progress flag
         *self.needs_render.borrow_mut() = false;
         *self.drawing_in_progress.borrow_mut() = true;
         
-        // 7. Set up scope to ensure we always unset the drawing flag when done
+        // 8. Set up scope to ensure we always unset the drawing flag when done
         let result: Result<()> = {
             let doc = match self.doc.try_borrow() {
                 Ok(doc) => doc,
@@ -891,7 +967,7 @@ impl IFrame {
             Ok(())
         };
         
-        // 8. ALWAYS unset the drawing flag when we're done, regardless of success or failure
+        // 9. ALWAYS unset the drawing flag when we're done, regardless of success or failure
         *self.drawing_in_progress.borrow_mut() = false;
         
         match &result {
