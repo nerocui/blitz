@@ -98,6 +98,26 @@ namespace MarkdownTest
         static private readonly int _fpsUpdateInterval = 500; // Update FPS display every 500ms
         static private Dictionary<string, PerformanceMetric> _performanceMetrics = new Dictionary<string, PerformanceMetric>();
 
+        // Frame dropping mechanism variables
+        static private bool _isRenderingFrame = false;
+        static private long _renderingStartTime = 0;
+        static private int _droppedFrameCount = 0;
+        static private int _consecutiveDroppedFrames = 0;
+        static private int _totalFrames = 0;
+        static private readonly float _targetFrameTimeMs = 16.66f; // Target frame time for 60fps
+        static private readonly int _maxConsecutiveDroppedFrames = 5; // Force render after dropping this many consecutive frames
+        
+        // Throttling mechanism to limit render calls to 60fps
+        static private long _lastFrameTimestamp = 0;
+        static private readonly float _minimumFrameTimeMs = 16.66f; // Don't render faster than 60fps (1000/60)
+        
+        // Resize debouncing to prevent excessive reconfiguration
+        static private DateTime _lastResizeTime = DateTime.MinValue;
+        static private bool _resizePending = false;
+        static private Size _pendingResizeSize = new Size(0, 0);
+        static private readonly TimeSpan _resizeDebounceTime = TimeSpan.FromMilliseconds(200); // Wait 200ms between resize operations
+        static private DispatcherQueueTimer _resizeTimer = null;
+
         // Circuit breaker variables
         private static int _targetReconfigurationAttempts = 0;
         private static readonly int _maxReconfigurationAttempts = 3;
@@ -243,22 +263,44 @@ namespace MarkdownTest
             // Check if the new size is valid
             if (e.NewSize.Width > 0 && e.NewSize.Height > 0)
             {
+                // Update pending resize size
+                _pendingResizeSize = e.NewSize;
+                _resizePending = true;
+                
                 // Get the DispatcherQueue from the sender object (SwapChainPanel)
                 var panel = sender as FrameworkElement;
                 if (panel != null)
                 {
-                    // Add a small delay to avoid frequent resize operations if multiple resize events occur in quick succession
-                    panel.DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Normal, () =>
+                    // Create the timer if it doesn't exist
+                    if (_resizeTimer == null)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[DEBUG] Resize event dispatched, resizing to: {e.NewSize.Width}x{e.NewSize.Height}");
-                        Resize(e.NewSize);
-                    });
+                        _resizeTimer = panel.DispatcherQueue.CreateTimer();
+                        _resizeTimer.Interval = TimeSpan.FromMilliseconds(200); // 200ms debounce
+                        _resizeTimer.Tick += (s, args) =>
+                        {
+                            _resizeTimer.Stop();
+                            
+                            if (_resizePending)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[DEBUG] Debounced resize timer triggered: {_pendingResizeSize.Width}x{_pendingResizeSize.Height}");
+                                ResizeWithReducedFlashing(_pendingResizeSize);
+                                _resizePending = false;
+                            }
+                        };
+                    }
+                    
+                    // Restart the timer
+                    _resizeTimer.Stop();
+                    _resizeTimer.Start();
+                    
+                    // Track when we last received a resize event
+                    _lastResizeTime = DateTime.Now;
                 }
                 else
                 {
-                    // If we can't get the dispatcher queue from the panel, resize directly
-                    System.Diagnostics.Debug.WriteLine($"[DEBUG] Resizing directly to: {e.NewSize.Width}x{e.NewSize.Height}");
-                    Resize(e.NewSize);
+                    // If we can't get the dispatcher queue, resize directly
+                    System.Diagnostics.Debug.WriteLine($"[DEBUG] No dispatcher available, resizing directly to: {e.NewSize.Width}x{e.NewSize.Height}");
+                    ResizeWithReducedFlashing(e.NewSize);
                 }
             }
         }
@@ -1259,6 +1301,121 @@ namespace MarkdownTest
             return hr;
         }
 
+        /// <summary>
+        /// Special resize method that minimizes white flashing during resize operations
+        /// </summary>
+        public static HRESULT ResizeWithReducedFlashing(Size sz)
+        {
+            HRESULT hr = HRESULT.S_OK;
+
+            // Check if we're already at this size
+            if (m_pDXGISwapChain1 != null)
+            {
+                DXGI_SWAP_CHAIN_DESC1 origDesc = new DXGI_SWAP_CHAIN_DESC1();
+                try
+                {
+                    hr = m_pDXGISwapChain1.GetDesc1(out origDesc);
+                    if (hr == HRESULT.S_OK)
+                    {
+                        // If dimensions match within a small threshold, skip the resize entirely
+                        if (Math.Abs(origDesc.Width - sz.Width) <= 1 && Math.Abs(origDesc.Height - sz.Height) <= 1)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[DEBUG] Skipping resize - already at size {origDesc.Width}x{origDesc.Height}");
+                            return HRESULT.S_OK;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[DEBUG] Error checking swap chain dimensions: {ex.Message}");
+                }
+                
+                // Start performance tracking for resize operation
+                BeginTimeMeasure("Resize");
+                
+                try
+                {
+                    // Don't call BeginDraw/Clear/EndDraw - this reduces white flashes
+                    
+                    // First release the D2D target bitmap
+                    if (m_pD2DDeviceContext != null && m_pD2DTargetBitmap != null)
+                    {
+                        m_pD2DDeviceContext.SetTarget(null);
+                    }
+                    
+                    SafeRelease(ref m_pD2DTargetBitmap);
+                    
+                    // Don't present after clearing the target - this is a key difference 
+                    // from the original Resize method to reduce flashing
+                    
+                    if (sz.Width > 0 && sz.Height > 0)
+                    {
+                        try
+                        {
+                            hr = m_pDXGISwapChain1.ResizeBuffers(
+                                2,
+                                (uint)sz.Width,
+                                (uint)sz.Height,
+                                DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM,
+                                0
+                            );
+
+                            if ((uint)hr == 0x887A0001) // DXGI_ERROR_INVALID_CALL (buffer references exist)
+                            {
+                                // If buffer still has references, do a more aggressive cleanup
+                                GC.Collect();
+                                GC.WaitForPendingFinalizers();
+                                System.Threading.Thread.Sleep(50);
+                                
+                                // Try resize again
+                                hr = m_pDXGISwapChain1.ResizeBuffers(
+                                    2,
+                                    (uint)sz.Width,
+                                    (uint)sz.Height,
+                                    DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM,
+                                    0
+                                );
+                                
+                                if (hr != HRESULT.S_OK)
+                                {
+                                    // Last resort - recreate the swap chain
+                                    SafeRelease(ref m_pDXGISwapChain1);
+                                    hr = CreateSwapChain(IntPtr.Zero, (uint)sz.Width, (uint)sz.Height);
+                                }
+                            }
+
+                            // Configure the swap chain - create the target bitmap
+                            if (hr == HRESULT.S_OK)
+                            {
+                                hr = ConfigureSwapChain();
+                            }
+                            
+                            // Notify the renderer about the new size
+                            if (_isActive && _d2dRenderer != null && hr == HRESULT.S_OK)
+                            {
+                                _d2dRenderer.Resize((uint)sz.Width, (uint)sz.Height);
+                                
+                                // Mark that we need to re-render but don't do it immediately
+                                // This allows the next CompositionTarget_Rendering to pick it up naturally
+                                _rendered = false;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[DEBUG] Exception during resize: {ex.Message}");
+                        }
+                    }
+                }
+                finally
+                {
+                    // End performance tracking regardless of success or failure
+                    EndTimeMeasure("Resize");
+                }
+            }
+            
+            return hr;
+        }
+
         public static void Clean()
         {
             // Disconnect event handlers first
@@ -1453,6 +1610,66 @@ namespace MarkdownTest
             
             try
             {
+                // Implement throttling to limit rendering to 60fps
+                long currentTimestamp = GetHighPrecisionTimestamp();
+                if (_lastFrameTimestamp > 0)
+                {
+                    float elapsedMs = ConvertToMilliseconds(_lastFrameTimestamp, currentTimestamp);
+                    
+                    // If not enough time has passed since last frame, skip this one
+                    if (elapsedMs < _minimumFrameTimeMs)
+                    {
+                        // Skip rendering this frame to maintain ~60fps
+                        System.Diagnostics.Debug.WriteLine($"[PERF] Throttling frame - only {elapsedMs:F2}ms elapsed (target: {_minimumFrameTimeMs:F2}ms)");
+                        return;
+                    }
+                }
+                
+                // Update the timestamp for the next frame
+                _lastFrameTimestamp = currentTimestamp;
+                
+                // Increment total frame counter for statistics
+                _totalFrames++;
+                
+                // Check if we're already rendering a frame - implement frame dropping
+                if (_isRenderingFrame)
+                {
+                    // Calculate how long the current frame has been rendering
+                    long currentTime = GetHighPrecisionTimestamp();
+                    float frameRenderTimeMs = ConvertToMilliseconds(_renderingStartTime, currentTime);
+                    
+                    // If we've been rendering for too long, drop this frame
+                    if (frameRenderTimeMs > _targetFrameTimeMs)
+                    {
+                        _droppedFrameCount++;
+                        _consecutiveDroppedFrames++;
+                        
+                        // Log frame dropping but don't spam the console
+                        if (_consecutiveDroppedFrames == 1 || _consecutiveDroppedFrames % 10 == 0)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[PERF] Dropping frame #{_totalFrames} - previous frame still rendering for {frameRenderTimeMs:F2}ms. Total dropped: {_droppedFrameCount}");
+                        }
+                        
+                        // If we've dropped too many consecutive frames, force through the next one to prevent complete stalling
+                        if (_consecutiveDroppedFrames >= _maxConsecutiveDroppedFrames)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[PERF] Force rendering after {_consecutiveDroppedFrames} consecutive dropped frames");
+                        }
+                        else
+                        {
+                            // Skip this frame
+                            return;
+                        }
+                    }
+                }
+                
+                // Start tracking this new frame's rendering
+                _renderingStartTime = GetHighPrecisionTimestamp();
+                _isRenderingFrame = true;
+                
+                // Reset consecutive dropped frames counter since we're rendering this frame
+                _consecutiveDroppedFrames = 0;
+                
                 // Start performance tracking for frame
                 BeginTimeMeasure("Total");
                 
@@ -1767,6 +1984,9 @@ namespace MarkdownTest
                 // End performance tracking for this frame
                 EndTimeMeasure("Total");
                 
+                // Reset the rendering flag since we're done with this frame
+                _isRenderingFrame = false;
+                
                 // Update performance statistics and metrics
                 UpdatePerformanceStatistics();
             }
@@ -1996,7 +2216,7 @@ namespace MarkdownTest
                 {
                     System.Diagnostics.Debug.WriteLine($"Error in SetTheme: {ex.Message}");
                     _isActive = false;
-                }
+                               }
             }
         }
 
