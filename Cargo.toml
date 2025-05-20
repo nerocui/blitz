@@ -58,6 +58,7 @@ wgpu = "24"
 softbuffer = "0.4"
 vello = { version = "0.5", features = [ "wgpu" ] }
 vello_cpu = { version = "0.0.1" }
+vello_svg = { version = "0.6" }
 usvg = "0.44.0"
 
 # Windowing & Input
@@ -94,6 +95,20 @@ pollster = "0.4"
 smol_str = "0.2"
 bitflags = "2.8.0"
 thiserror = "1.0.63"
+
+# for building:
+windows-link = { version = "0.1" }
+windows-bindgen = { version = "0.60.0" }
+windows-metadata = { version = "0.58.0" }
+windows-core = { version="0.60.1" }
+windows-targets = { version="0.53.0" }
+
+[workspace.dependencies.windows]
+version = "0.60.0"
+features = [
+    "Win32_Foundation",
+    "Win32_System_WinRT",
+]
 
 [profile.production]
 inherits = "release"
