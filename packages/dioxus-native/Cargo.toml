@@ -1,25 +1,35 @@
 [package]
 name = "dioxus-native"
-version = "0.0.0"
+description = "Native Dioxus backend powered by Blitz"
+version = "0.1.0-alpha.1"
+homepage = "https://github.com/dioxuslabs/blitz"
+repository = "https://github.com/dioxuslabs/blitz"
+documentation = "https://docs.rs/dioxus-native"
 license.workspace = true
-edition = "2021"
+edition = "2024"
 
 [features]
-default = ["accessibility", "hot-reload", "menu", "tracing", "net", "svg"]
-svg = ["blitz-dom/svg", "blitz-renderer-vello/svg"]
+default = ["accessibility", "hot-reload", "menu", "tracing", "net", "svg", "gpu_backend"]
+svg = ["blitz-dom/svg", "blitz-paint/svg", "blitz-renderer-vello/svg"]
 net = ["dep:tokio", "dep:blitz-net"]
 accessibility = ["blitz-shell/accessibility", "blitz-dom/accessibility"]
+autofocus = []
 menu = ["blitz-shell/menu"]
 tracing = ["dep:tracing", "blitz-shell/tracing", "blitz-dom/tracing"]
 hot-reload = ["dep:dioxus-cli-config", "dep:dioxus-devtools"]
+gpu_backend = ["dep:anyrender_vello"]
+cpu_backend = ["dep:anyrender_vello_cpu"]
 
 [dependencies]
 # Blitz dependencies
+anyrender_vello = { path = "../anyrender_vello", default-features = false, optional = true }
+anyrender_vello_cpu = { path = "../anyrender_vello_cpu", default-features = false, optional = true }
+blitz-paint = { version = "0.1.0-alpha.1", path = "../blitz-paint", default-features = false }
+blitz-dom = { version = "0.1.0-alpha.1", path = "../blitz-dom", default-features = false }
+blitz-net = { version = "0.1.0-alpha.1", path = "../blitz-net", optional = true }
+blitz-traits = { version = "0.1.0-alpha.1", path = "../blitz-traits" }
+blitz-shell = { version = "0.1.0-alpha.1", path = "../blitz-shell", default-features = false }
 blitz-renderer-vello = { path = "../blitz-renderer-vello", default-features = false }
-blitz-dom = { path = "../blitz-dom", default-features = false }
-blitz-net = { path = "../blitz-net", optional = true }
-blitz-traits = { path = "../blitz-traits" }
-blitz-shell = { path = "../blitz-shell", default-features = false }
 
 # DioxusLabs dependencies
 dioxus-core = { workspace = true }
