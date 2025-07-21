@@ -213,7 +213,7 @@ impl VelloSwapChainRenderer {
         width: u32,
         height: u32,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let panel_handle = Arc::new(SwapChainPanelHandle::new(panel_ptr));
+        let panel_handle = Arc::new(unsafe { SwapChainPanelHandle::new(panel_ptr) });
         
         // Find or create a suitable device
         let dev_id = self

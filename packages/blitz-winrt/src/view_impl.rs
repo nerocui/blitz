@@ -21,6 +21,7 @@ use blitz_html::{HtmlDocument, DocumentHtmlParser};
 use blitz_traits::events::DomEventData;
 use blitz_traits::shell::Viewport;
 use anyrender_vello::VelloSwapChainRenderer;
+use anyrender::PaintScene;
 
 /// The main implementation of the Blitz view for WinRT integration.
 ///
@@ -289,22 +290,21 @@ impl BlitzViewImpl {
     
     /// Handles HTML loading in the background task.
     async fn handle_load_html(view_impl: Arc<Mutex<Self>>, html: String) {
-        // Parse HTML into a document
-        let mut doc = BaseDocument::new(DocumentConfig::default());
-        let parser = DocumentHtmlParser::new(doc);
-        if let Ok(document) = parser.parse_string(&html) {
-            if let Ok(mut view) = view_impl.lock() {
-                view.document = Some(document);
-                view.render_pending = true;
-            }
-            
-            // Trigger a render
-            let _ = view_impl.lock().map(|view| {
-                if let Some(sender) = &view.task_sender {
-                    let _ = sender.send(ViewTask::Render);
-                }
-            });
+        // Parse HTML into a document using HtmlDocument::from_html
+        let config = DocumentConfig::default();
+        let document = HtmlDocument::from_html(&html, config);
+        
+        if let Ok(mut view) = view_impl.lock() {
+            view.document = Some(document);
+            view.render_pending = true;
         }
+        
+        // Trigger a render
+        let _ = view_impl.lock().map(|view| {
+            if let Some(sender) = &view.task_sender {
+                let _ = sender.send(ViewTask::Render);
+            }
+        });
     }
     
     /// Handles URL loading in the background task.
@@ -327,7 +327,7 @@ impl BlitzViewImpl {
                 // This would involve finding the target element and processing the event
                 // For now, we'll just trigger a render if it's a meaningful event
                 match event_data {
-                    DomEventData::Pointer(_) | DomEventData::Keyboard(_) => {
+                    DomEventData::MouseMove(_) | DomEventData::KeyPress(_) => {
                         view.render_pending = true;
                     }
                     _ => {}

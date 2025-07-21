@@ -18,6 +18,7 @@ blitz-traits = { workspace = true }
 blitz-html = { workspace = true }
 
 # Rendering dependencies
+anyrender = { workspace = true }
 anyrender_vello = { workspace = true }
 wgpu = { workspace = true }
 vello = { workspace = true }
