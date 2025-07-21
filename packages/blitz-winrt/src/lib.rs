@@ -60,7 +60,7 @@ pub struct BlitzViewState {
     pub markdown_content: String,
     
     /// The core implementation that handles rendering
-    pub core_impl: Option<Arc<Mutex<CoreBlitzViewImpl>>>,
+    pub core_impl: Arc<Mutex<Option<Arc<Mutex<CoreBlitzViewImpl>>>>>,
 }
 
 /// The main WinRT implementation struct that bridges COM/WinRT with Rust
@@ -90,7 +90,7 @@ impl BlitzViewImpl {
             dark_mode: Arc::new(Mutex::new(false)),
             swap_chain_panel,
             markdown_content: markdown,
-            core_impl: None,
+            core_impl: Arc::new(Mutex::new(None)),
         });
         
         BlitzViewImpl { state }
@@ -115,17 +115,20 @@ impl BlitzViewImpl {
             core_guard.initialize_renderer(self.state.swap_chain_panel).await?;
         }
         
-        // Store it in our state
-        let mut state = Arc::get_mut(&mut self.state.clone()).unwrap();
-        state.core_impl = Some(core_impl);
+        // We can't modify the state directly since it's in an Arc
+        // Instead, we'll need to restructure this to store the core_impl differently
+        // For now, let's just initialize and load the content directly
+        
+        // Store the core implementation in the state
+        if let Ok(mut core_impl_guard) = self.state.core_impl.lock() {
+            *core_impl_guard = Some(core_impl.clone());
+        }
         
         // Load the initial markdown content
-        if let Some(core) = &state.core_impl {
-            if let Ok(mut core_guard) = core.lock() {
-                // Convert markdown to HTML and load it
-                let html = self.markdown_to_html(&state.markdown_content);
-                core_guard.load_html(html)?;
-            }
+        if let Ok(mut core_guard) = core_impl.lock() {
+            // Convert markdown to HTML and load it
+            let html = self.markdown_to_html(&self.state.markdown_content);
+            core_guard.load_html(html)?;
         }
         
         Ok(())
@@ -220,10 +223,12 @@ impl BlitzViewImpl {
         let html = self.markdown_to_html(&self.state.markdown_content);
         
         // Update the core implementation if it exists
-        if let Some(core) = &self.state.core_impl {
-            if let Ok(mut core_guard) = core.lock() {
-                core_guard.set_dark_mode(isDarkMode);
-                core_guard.load_html(html)?;
+        if let Ok(core_impl_guard) = self.state.core_impl.lock() {
+            if let Some(core) = core_impl_guard.as_ref() {
+                if let Ok(mut core_guard) = core.lock() {
+                    core_guard.set_dark_mode(isDarkMode);
+                    core_guard.load_html(html)?;
+                }
             }
         }
         
