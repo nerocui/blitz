@@ -460,4 +460,3 @@ mod tests {
         // assert!(view.is_dark_mode());
     }
 }
-

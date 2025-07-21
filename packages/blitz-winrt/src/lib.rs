@@ -300,7 +300,7 @@ impl BlitzViewImpl {
         
         // TODO: Create proper BlitzView COM object 
         // For now, return an error until we implement proper COM object creation
-        Err(windows_core::Error::from_hresult(windows_core::HRESULT(0x80004001))) // E_NOTIMPL
+        Err(windows_core::Error::from_hresult(windows_core::HRESULT(0x80004001u32 as i32))) // E_NOTIMPL
     }
 }
 
@@ -336,7 +336,7 @@ pub extern "C" fn DllGetActivationFactory(
 ) -> i32 {
     // TODO: Implement activation factory creation
     // This would typically create and return a factory for BlitzView
-    0x80004001 // E_NOTIMPL
+    0x80004001u32 as i32 // E_NOTIMPL
 }
 
 #[cfg(test)]

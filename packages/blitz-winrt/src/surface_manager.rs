@@ -78,7 +78,7 @@ impl SurfaceManager {
     pub fn new(swap_chain_panel: *mut std::ffi::c_void) -> Result<Self> {
         // Validate the pointer
         let panel_ptr = NonNull::new(swap_chain_panel)
-            .ok_or_else(|| windows_core::Error::from_hresult(windows_core::HRESULT(0x80070057)))?; // E_INVALIDARG
+            .ok_or_else(|| windows_core::Error::from_hresult(windows_core::HRESULT(0x80070057u32 as i32)))?; // E_INVALIDARG
         
         // Create WGPU instance with DX12 backend for Windows
         let instance = Instance::new(&wgpu::InstanceDescriptor {
@@ -125,7 +125,7 @@ impl SurfaceManager {
         // and we assume it points to a valid SwapChainPanel control
         let surface = unsafe {
             self.instance.create_surface_unsafe(surface_target)
-                .map_err(|e| windows_core::Error::from_hresult(windows_core::HRESULT(0x80004005)))? // E_FAIL
+                .map_err(|e| windows_core::Error::from_hresult(windows_core::HRESULT(0x80004005u32 as i32)))? // E_FAIL
         };
         
         self.surface = Some(surface);
@@ -191,7 +191,7 @@ impl SurfaceManager {
     /// Result indicating success or failure of initialization
     pub async fn initialize_device(&mut self) -> Result<()> {
         let surface = self.surface.as_ref()
-            .ok_or_else(|| windows_core::Error::from_hresult(windows_core::HRESULT(0x80004005)))?; // E_FAIL
+            .ok_or_else(|| windows_core::Error::from_hresult(windows_core::HRESULT(0x80004005u32 as i32)))?; // E_FAIL
         
         // Find a compatible adapter
         let adapter = self.instance
@@ -201,7 +201,7 @@ impl SurfaceManager {
                 force_fallback_adapter: false,
             })
             .await
-            .ok_or_else(|| windows_core::Error::from_hresult(windows_core::HRESULT(0x80004005)))?; // E_FAIL
+            .ok_or_else(|| windows_core::Error::from_hresult(windows_core::HRESULT(0x80004005u32 as i32)))?; // E_FAIL
         
         // Create device and queue
         let (device, queue) = adapter
@@ -215,7 +215,7 @@ impl SurfaceManager {
                 None,
             )
             .await
-            .map_err(|_| windows_core::Error::from_hresult(windows_core::HRESULT(0x80004005)))?; // E_FAIL
+            .map_err(|_| windows_core::Error::from_hresult(windows_core::HRESULT(0x80004005u32 as i32)))?; // E_FAIL
         
         self.adapter = Some(adapter);
         self.device = Some(device);
