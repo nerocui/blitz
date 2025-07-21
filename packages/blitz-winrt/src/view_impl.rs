@@ -190,9 +190,9 @@ impl BlitzViewImpl {
     ///
     /// * `message` - The Windows message to process
     pub fn process_message(&mut self, message: WindowsMessage) -> Result<()> {
-        if let Some(event_data) = self.event_converter.convert_message(&message) {
+        if let Some(event) = self.event_converter.convert_message(&message) {
             if let Some(sender) = &self.task_sender {
-                sender.send(ViewTask::ProcessEvent(event_data))
+                sender.send(ViewTask::ProcessEvent(event.data))
                     .map_err(|_| windows_core::Error::from_hresult(windows_core::HRESULT(0x80004005)))?; // E_FAIL
             }
         }
