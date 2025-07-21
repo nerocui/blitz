@@ -282,7 +282,7 @@ impl EventConverter {
         let character = char::from_u32(char_code)?;
         
         let key_event = BlitzKeyEvent {
-            key: Key::Character(SmolStr::new(character.to_string())),
+            key: Key::Character(character.to_string()),
             code: Code::Unidentified,
             modifiers: self.get_modifiers(),
             location: Location::Standard,
@@ -356,7 +356,7 @@ impl EventConverter {
             0x11 => Some(Key::Control),
             0x12 => Some(Key::Alt),
             0x1B => Some(Key::Escape),
-            0x20 => Some(Key::Character(SmolStr::new(" "))),
+            0x20 => Some(Key::Character(" ".to_string())),
             0x25 => Some(Key::ArrowLeft),
             0x26 => Some(Key::ArrowUp),
             0x27 => Some(Key::ArrowRight),
@@ -364,7 +364,7 @@ impl EventConverter {
             0x2E => Some(Key::Delete),
             0x30..=0x39 => {
                 let digit = (virtual_key - 0x30) as u8 as char;
-                Some(Key::Character(SmolStr::new(digit.to_string())))
+                Some(Key::Character(digit.to_string()))
             }
             0x41..=0x5A => {
                 let c = (virtual_key as u8) as char;
@@ -373,7 +373,7 @@ impl EventConverter {
                 } else {
                     c.to_lowercase().to_string()
                 };
-                Some(Key::Character(SmolStr::new(key_str)))
+                Some(Key::Character(key_str))
             }
             0x70..=0x87 => {
                 let f_num = virtual_key - 0x6F;
