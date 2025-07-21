@@ -12,7 +12,7 @@
 //! - Focus events (gained, lost)
 //! - Resize events (size changed)
 
-use blitz_traits::events::{DomEvent, DomEventData, BlitzMouseButtonEvent, BlitzKeyEvent, MouseEventButtons, MouseEventButton};
+use blitz_traits::events::{DomEvent, DomEventData, BlitzMouseButtonEvent, BlitzKeyEvent, MouseEventButtons, MouseEventButton, KeyState};
 use windows::Win32::UI::Input::KeyboardAndMouse::{VIRTUAL_KEY, VK_SHIFT, VK_CONTROL, VK_MENU};
 use windows::Win32::Foundation::{POINT, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -147,7 +147,7 @@ impl EventConverter {
         let mouse_event = BlitzMouseButtonEvent {
             x,
             y,
-            button: MouseEventButton::None,
+            button: MouseEventButton::Main, // Use Main as default (no specific button)
             buttons: MouseEventButtons::None, // No buttons pressed for mouse move
             mods: self.get_modifiers(),
         };
@@ -213,7 +213,7 @@ impl EventConverter {
         let mouse_event = BlitzMouseButtonEvent {
             x,
             y,
-            button: MouseEventButton::None,
+            button: MouseEventButton::Main, // Use Main as default (no specific button)
             buttons: MouseEventButtons::None,
             mods: self.get_modifiers(),
         };
@@ -239,7 +239,7 @@ impl EventConverter {
             location: Location::Standard,
             is_auto_repeating: false, // TODO: Track repeat state
             is_composing: false,
-            state: keyboard_types::KeyState::Down,
+            state: KeyState::Pressed,
             text: None,
         };
         
@@ -264,7 +264,7 @@ impl EventConverter {
             location: Location::Standard,
             is_auto_repeating: false,
             is_composing: false,
-            state: keyboard_types::KeyState::Up,
+            state: KeyState::Released,
             text: None,
         };
         
@@ -288,7 +288,7 @@ impl EventConverter {
             location: Location::Standard,
             is_auto_repeating: false,
             is_composing: false,
-            state: keyboard_types::KeyState::Down,
+            state: KeyState::Pressed,
             text: Some(SmolStr::new(character.to_string())),
         };
         
@@ -322,10 +322,10 @@ impl EventConverter {
     /// Converts Windows mouse button to Blitz mouse button and flags.
     fn convert_mouse_button(&self, button: u16) -> (MouseEventButton, MouseEventButtons) {
         match button {
-            0 => (MouseEventButton::Primary, MouseEventButtons::Primary),
-            1 => (MouseEventButton::Auxiliary, MouseEventButtons::Auxiliary),
-            2 => (MouseEventButton::Secondary, MouseEventButtons::Secondary),
-            _ => (MouseEventButton::None, MouseEventButtons::None),
+            0 => (MouseEventButton::Main, MouseEventButtons::Primary), // Left button
+            1 => (MouseEventButton::Auxiliary, MouseEventButtons::Auxiliary), // Middle button
+            2 => (MouseEventButton::Secondary, MouseEventButtons::Secondary), // Right button
+            _ => (MouseEventButton::Main, MouseEventButtons::None), // Default fallback
         }
     }
     
