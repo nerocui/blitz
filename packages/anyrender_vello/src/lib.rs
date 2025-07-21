@@ -3,6 +3,7 @@ mod debug;
 mod image_renderer;
 mod scene;
 mod window_renderer;
+mod swapchain_renderer;
 
 pub mod custom_paint_source;
 pub mod wgpu_context;
@@ -11,6 +12,7 @@ pub use custom_paint_source::*;
 pub use image_renderer::VelloImageRenderer;
 pub use scene::VelloScenePainter;
 pub use window_renderer::VelloWindowRenderer;
+pub use swapchain_renderer::{VelloSwapChainRenderer, SwapChainPanelHandle};
 
 pub use wgpu;
 

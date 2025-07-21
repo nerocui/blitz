@@ -126,6 +126,11 @@ impl BlitzViewImpl {
         // Create the core implementation
         let core_impl = CoreBlitzViewImpl::new(self.state.swap_chain_panel).await?;
         
+        // Initialize the renderer with the SwapChainPanel
+        if let Ok(mut core_guard) = core_impl.lock() {
+            core_guard.initialize_renderer(self.state.swap_chain_panel).await?;
+        }
+        
         // Store it in our state
         let mut state = Arc::get_mut(&mut self.state.clone()).unwrap();
         state.core_impl = Some(core_impl);

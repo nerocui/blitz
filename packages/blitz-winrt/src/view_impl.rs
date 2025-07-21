@@ -20,7 +20,7 @@ use blitz_dom::{Document, BaseDocument, DocumentConfig};
 use blitz_html::{HtmlDocument, DocumentHtmlParser};
 use blitz_traits::events::DomEventData;
 use blitz_traits::shell::Viewport;
-use anyrender_vello::VelloRenderer;
+use anyrender_vello::VelloSwapChainRenderer;
 
 /// The main implementation of the Blitz view for WinRT integration.
 ///
@@ -37,7 +37,7 @@ pub struct BlitzViewImpl {
     document: Option<HtmlDocument>,
     
     /// The Vello renderer for GPU-accelerated rendering
-    renderer: Option<VelloRenderer>,
+    renderer: Option<VelloSwapChainRenderer>,
     
     /// Current viewport information
     viewport: Viewport,
@@ -137,26 +137,24 @@ impl BlitzViewImpl {
         Ok(view_impl)
     }
     
-    /// Initializes the Vello renderer.
+    /// Initializes the Vello renderer with the SwapChainPanel.
     ///
     /// This must be called after the surface is created and the device is initialized.
-    pub fn initialize_renderer(&mut self) -> Result<()> {
-        if let Some((device, queue)) = self.surface_manager.get_device_and_queue() {
-            let surface_info = self.surface_manager.get_surface_info();
-            
-            // Create Vello renderer
-            let renderer = VelloRenderer::new(
-                device,
-                queue,
-                surface_info.width,
-                surface_info.height,
-            ).map_err(|_| windows_core::Error::from_hresult(windows_core::HRESULT(0x80004005)))?; // E_FAIL
-            
-            self.renderer = Some(renderer);
-            Ok(())
-        } else {
-            Err(windows_core::Error::from_hresult(windows_core::HRESULT(0x80004005))) // E_FAIL
+    pub async fn initialize_renderer(&mut self, swap_chain_panel: *mut std::ffi::c_void) -> Result<()> {
+        let surface_info = self.surface_manager.get_surface_info();
+        
+        // Create SwapChain renderer
+        let mut renderer = VelloSwapChainRenderer::new();
+        
+        // Resume with the SwapChainPanel
+        unsafe {
+            renderer.resume_with_panel(swap_chain_panel, surface_info.width, surface_info.height)
+                .await
+                .map_err(|_| windows_core::Error::from_hresult(windows_core::HRESULT(0x80004005)))?; // E_FAIL
         }
+        
+        self.renderer = Some(renderer);
+        Ok(())
     }
     
     /// Loads HTML content and starts rendering.
@@ -211,6 +209,11 @@ impl BlitzViewImpl {
         self.surface_manager.resize(width, height, scale_factor)?;
         self.event_converter.set_scale_factor(scale_factor);
         self.event_converter.set_panel_size(width, height);
+        
+        // Update renderer size if it exists
+        if let Some(ref mut renderer) = self.renderer {
+            renderer.set_size(width, height);
+        }
         
         if let Some(sender) = &self.task_sender {
             sender.send(ViewTask::UpdateViewport(width, height, scale_factor))
@@ -341,14 +344,23 @@ impl BlitzViewImpl {
             }
             
             if let (Some(ref document), Some(ref mut renderer)) = (&view.document, &mut view.renderer) {
-                // TODO: Implement actual rendering pipeline
-                // This would involve:
-                // 1. Layout calculation using Taffy
-                // 2. Paint tree generation
-                // 3. Vello scene building
-                // 4. GPU rendering
+                // Render using the SwapChain renderer
+                let render_result = renderer.render(|scene| {
+                    // TODO: Implement actual scene painting
+                    // This would involve:
+                    // 1. Walking the DOM tree
+                    // 2. Applying CSS styles
+                    // 3. Converting to Vello drawing commands
+                    
+                    // For now, just clear the scene
+                    scene.reset();
+                });
                 
-                // For now, just clear the render pending flag
+                if let Err(e) = render_result {
+                    // Log rendering error
+                    // TODO: Add proper error handling/logging
+                }
+                
                 view.render_pending = false;
             }
         }
@@ -367,8 +379,7 @@ impl BlitzViewImpl {
             
             // Update renderer if it exists
             if let Some(ref mut renderer) = view.renderer {
-                // TODO: Update renderer viewport
-                // renderer.resize(width, height);
+                renderer.set_size(width, height);
             }
             
             view.render_pending = true;
@@ -379,6 +390,11 @@ impl BlitzViewImpl {
 impl Drop for BlitzViewImpl {
     /// Cleanup when the view is dropped.
     fn drop(&mut self) {
+        // Suspend the renderer
+        if let Some(ref mut renderer) = self.renderer {
+            renderer.suspend();
+        }
+        
         // Send shutdown signal to task runner
         if let Some(sender) = &self.task_sender {
             let _ = sender.send(ViewTask::Shutdown);

@@ -83,8 +83,7 @@ impl SurfaceManager {
         let instance = Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::DX12, // Use DX12 for SwapChainPanel compatibility
             flags: wgpu::InstanceFlags::default(),
-            dx12_shader_compiler: wgpu::Dx12Compiler::default(),
-            gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
+            backend_options: wgpu::BackendOptions::default(),
         });
         
         // Initialize with default surface info - will be updated when surface is created
