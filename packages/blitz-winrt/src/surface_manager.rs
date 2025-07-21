@@ -80,10 +80,10 @@ impl SurfaceManager {
             .ok_or_else(|| windows_core::Error::from_hresult(windows_core::HRESULT(0x80070057)))?; // E_INVALIDARG
         
         // Create WGPU instance with DX12 backend for Windows
-        let instance = Instance::new(wgpu::InstanceDescriptor {
+        let instance = Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::DX12, // Use DX12 for SwapChainPanel compatibility
             flags: wgpu::InstanceFlags::default(),
-            backend_options: wgpu::BackendOptions::default(),
+            ..Default::default()
         });
         
         // Initialize with default surface info - will be updated when surface is created
