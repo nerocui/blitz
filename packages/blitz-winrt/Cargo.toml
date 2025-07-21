@@ -1,0 +1,25 @@
+[package]
+name = "blitz-winrt"
+version = "0.1.0"
+license = "MIT OR Apache-2.0 OR MPL-2.0"
+description = "Blitz WinRT"
+keywords = ["blitz", "winrt"]
+categories = ["gui"]
+edition = "2021"
+repository = ""
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+comrak = { version = "0.40.0", default-features = false }
+keyboard-types = "0.8.0"
+scopeguard = "1.2"
+windows.workspace = true
+windows-core.workspace = true
+windows-targets.workspace = true
+windows-numerics.workspace = true
+
+[build-dependencies]
+windows-bindgen.workspace=true
+windows-metadata.workspace=true

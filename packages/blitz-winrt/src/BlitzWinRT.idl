@@ -1,0 +1,8 @@
+namespace BlitzWinRT
+{
+    runtimeclass BlitzView
+    {
+        BlitzView(UInt64 swapChainPanel, String markdown);
+        void SetTheme(Boolean isDarkMode);
+    }
+}

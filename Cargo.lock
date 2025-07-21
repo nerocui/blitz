@@ -735,7 +735,7 @@ dependencies = [
  "euclid",
  "html-escape",
  "image",
- "keyboard-types",
+ "keyboard-types 0.7.0",
  "markup5ever",
  "objc2 0.6.1",
  "parley",
@@ -834,7 +834,7 @@ dependencies = [
  "blitz-paint",
  "blitz-traits",
  "futures-util",
- "keyboard-types",
+ "keyboard-types 0.7.0",
  "tracing",
  "winit",
 ]
@@ -847,9 +847,24 @@ dependencies = [
  "bytes",
  "cursor-icon",
  "http",
- "keyboard-types",
+ "keyboard-types 0.7.0",
  "smol_str",
  "url",
+]
+
+[[package]]
+name = "blitz-winrt"
+version = "0.1.0"
+dependencies = [
+ "comrak 0.40.0",
+ "keyboard-types 0.8.0",
+ "scopeguard",
+ "windows 0.61.3",
+ "windows-bindgen",
+ "windows-core 0.61.2",
+ "windows-metadata",
+ "windows-numerics",
+ "windows-targets 0.53.0",
 ]
 
 [[package]]
@@ -1171,6 +1186,20 @@ name = "comrak"
 version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d5c834ca54c5a20588b358f34d1533b4b498ddb5fd979cec6b22d0e8867a2449"
+dependencies = [
+ "caseless",
+ "entities",
+ "memchr",
+ "slug",
+ "typed-arena",
+ "unicode_categories",
+]
+
+[[package]]
+name = "comrak"
+version = "0.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32c3278f396e5707769a68bc0943e9b8f84a172836b173827810918279621747"
 dependencies = [
  "caseless",
  "entities",
@@ -1857,7 +1886,7 @@ dependencies = [
  "euclid",
  "futures-channel",
  "generational-box",
- "keyboard-types",
+ "keyboard-types 0.7.0",
  "lazy-js-bundle",
  "rustversion",
  "serde",
@@ -3364,6 +3393,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "keyboard-types"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd6e0f18953c66af118a70064505bd3780a226d65b06553b7293fb8933067967"
+dependencies = [
+ "bitflags 2.9.1",
+ "serde",
+]
+
+[[package]]
 name = "khronos-egl"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3715,7 +3754,7 @@ dependencies = [
  "dioxus-hooks",
  "dioxus-html",
  "futures-util",
- "keyboard-types",
+ "keyboard-types 0.7.0",
  "rustc-hash 1.1.0",
  "tokio",
  "tracing",
@@ -4943,7 +4982,7 @@ dependencies = [
  "blitz-paint",
  "blitz-shell",
  "blitz-traits",
- "comrak",
+ "comrak 0.39.0",
  "image",
  "notify",
  "pulldown-cmark",
@@ -7420,6 +7459,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "windows"
+version = "0.61.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9babd3a767a4c1aef6900409f85f5d53ce2544ccdfaa86dad48c91782c6d6893"
+dependencies = [
+ "windows-collections",
+ "windows-core 0.61.2",
+ "windows-future",
+ "windows-link",
+ "windows-numerics",
+]
+
+[[package]]
+name = "windows-bindgen"
+version = "0.62.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b541b67bb66a43de06888703b15519e40b3fc9b65917dc1ccd71aecfd7c5703"
+dependencies = [
+ "serde",
+ "serde_json",
+ "windows-threading",
+]
+
+[[package]]
+name = "windows-collections"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3beeceb5e5cfd9eb1d76b381630e82c4241ccd0d27f1a39ed41b2760b255c5e8"
+dependencies = [
+ "windows-core 0.61.2",
+]
+
+[[package]]
 name = "windows-core"
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7434,11 +7506,35 @@ version = "0.58.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ba6d44ec8c2591c134257ce647b7ea6b20335bf6379a27dac5f1641fcf59f99"
 dependencies = [
- "windows-implement",
- "windows-interface",
+ "windows-implement 0.58.0",
+ "windows-interface 0.58.0",
  "windows-result 0.2.0",
  "windows-strings 0.1.0",
  "windows-targets 0.52.6",
+]
+
+[[package]]
+name = "windows-core"
+version = "0.61.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0fdd3ddb90610c7638aa2b3a3ab2904fb9e5cdbecc643ddb3647212781c4ae3"
+dependencies = [
+ "windows-implement 0.60.0",
+ "windows-interface 0.59.1",
+ "windows-link",
+ "windows-result 0.3.4",
+ "windows-strings 0.4.2",
+]
+
+[[package]]
+name = "windows-future"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc6a41e98427b19fe4b73c550f060b59fa592d7d686537eebf9385621bfbad8e"
+dependencies = [
+ "windows-core 0.61.2",
+ "windows-link",
+ "windows-threading",
 ]
 
 [[package]]
@@ -7446,6 +7542,17 @@ name = "windows-implement"
 version = "0.58.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2bbd5b46c938e506ecbce286b6628a02171d56153ba733b6c741fc627ec9579b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.102",
+]
+
+[[package]]
+name = "windows-implement"
+version = "0.60.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a47fddd13af08290e67f4acabf4b459f647552718f683a7b415d290ac744a836"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7464,10 +7571,37 @@ dependencies = [
 ]
 
 [[package]]
-name = "windows-link"
-version = "0.1.1"
+name = "windows-interface"
+version = "0.59.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76840935b766e1b0a05c0066835fb9ec80071d4c09a16f6bd5f7e655e3c14c38"
+checksum = "bd9211b69f8dcdfa817bfd14bf1c97c9188afa36f4750130fcdf3f400eca9fa8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.102",
+]
+
+[[package]]
+name = "windows-link"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e6ad25900d524eaabdbbb96d20b4311e1e7ae1699af4fb28c17ae66c80d798a"
+
+[[package]]
+name = "windows-metadata"
+version = "0.59.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70aa58b9e48ffc2d7c2f2f5209448a8c3bb2c4b2f77f2df9505253caf27fcc31"
+
+[[package]]
+name = "windows-numerics"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9150af68066c4c5c07ddc0ce30421554771e528bde427614c61038bc2c92c2b1"
+dependencies = [
+ "windows-core 0.61.2",
+ "windows-link",
+]
 
 [[package]]
 name = "windows-registry"
@@ -7604,6 +7738,15 @@ dependencies = [
  "windows_x86_64_gnu 0.53.0",
  "windows_x86_64_gnullvm 0.53.0",
  "windows_x86_64_msvc 0.53.0",
+]
+
+[[package]]
+name = "windows-threading"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b66463ad2e0ea3bbf808b7f1d371311c80e115c0b71d60efc142cafbcfb057a6"
+dependencies = [
+ "windows-link",
 ]
 
 [[package]]

@@ -10,6 +10,7 @@ members = [
   "packages/blitz-net",
   "packages/blitz-paint",
   "packages/blitz-shell",
+  "packages/blitz-winrt",
   "packages/blitz",
   "packages/mini-dxn",
   "packages/stylo_taffy",
@@ -121,6 +122,26 @@ pollster = "0.4"
 smol_str = "0.2"
 bitflags = "2.8.0"
 bytemuck = "1"
+
+# for building:
+windows-link = { version = "0.1" }
+windows-bindgen = { version = "0.62.1" }
+windows-metadata = { version = "0.59.0" }
+windows-numerics = "0.2.0"
+windows-core = { version="0.61.2" }
+windows-targets = { version="0.53.0" }
+[workspace.dependencies.windows]
+version = "0.61.3"
+features = [
+    "Win32_Foundation",
+    "Win32_System_WinRT",
+    "UI",
+    "UI_Core",
+    "UI_Input_Core",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging"
+]
+
 
 [profile.production]
 inherits = "release"
