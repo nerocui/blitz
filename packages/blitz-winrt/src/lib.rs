@@ -68,10 +68,47 @@ pub struct BlitzViewState {
 /// This struct implements the WinRT interfaces defined in the IDL file and
 /// delegates the actual work to the core implementation in view_impl.rs
 #[derive(Debug)]
-#[implement(IBlitzView, IBlitzViewFactory)]
 pub struct BlitzViewImpl {
     /// Shared state between interface methods
     state: Arc<BlitzViewState>,
+}
+
+/// COM wrapper that implements the WinRT interfaces
+#[implement(IBlitzView, IBlitzViewFactory)]
+pub struct BlitzViewCom {
+    /// The actual implementation
+    inner: BlitzViewImpl,
+}
+
+impl BlitzViewCom {
+    /// Creates a new BlitzViewCom instance
+    pub fn new(swap_chain_panel: *mut std::ffi::c_void, markdown: String) -> Self {
+        BlitzViewCom {
+            inner: BlitzViewImpl::new(swap_chain_panel, markdown),
+        }
+    }
+}
+
+/// Implementation of IBlitzView interface methods
+impl IBlitzView_Impl for BlitzViewCom_Impl {
+    /// Implementation of IBlitzView::SetTheme
+    #[allow(non_snake_case)] // WinRT method names must match IDL
+    fn SetTheme(&self, isDarkMode: bool) -> windows_core::Result<()> {
+        self.inner.SetTheme(isDarkMode)
+    }
+}
+
+/// Implementation of IBlitzViewFactory interface methods
+impl IBlitzViewFactory_Impl for BlitzViewCom_Impl {
+    /// Implementation of IBlitzViewFactory::CreateInstance
+    #[allow(non_snake_case)] // WinRT method names and parameters must match IDL
+    fn CreateInstance(
+        &self,
+        swapChainPanel: u64,
+        markdown: &windows_core::HSTRING,
+    ) -> windows_core::Result<BlitzView> {
+        self.inner.CreateInstance(swapChainPanel, markdown)
+    }
 }
 
 impl BlitzViewImpl {
