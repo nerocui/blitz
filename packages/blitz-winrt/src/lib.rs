@@ -183,8 +183,8 @@ impl BlitzViewImpl {
     fn markdown_to_html(&self, markdown: &str) -> String {
         // TODO: Implement proper markdown parsing using a crate like pulldown-cmark
         // For now, we'll wrap it in basic HTML structure
-        let is_dark = self.state.dark_mode.lock().unwrap_or_else(|_| false.into());
-        let theme_class = if *is_dark { "dark-theme" } else { "light-theme" };
+        let is_dark = self.state.dark_mode.lock().map(|guard| *guard).unwrap_or(false);
+        let theme_class = if is_dark { "dark-theme" } else { "light-theme" };
         
         format!(
             r#"<!DOCTYPE html>
