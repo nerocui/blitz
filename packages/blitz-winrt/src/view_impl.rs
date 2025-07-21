@@ -16,10 +16,10 @@ use tokio::sync::mpsc;
 use windows_core::Result;
 use crate::surface_manager::{SurfaceManager, SurfaceInfo};
 use crate::event_conversion::{EventConverter, WindowsMessage};
-use blitz_dom::{Document, DocumentLike, HtmlDocument, HtmlParser};
-use blitz_dom::events::EventData;
-use blitz_dom::viewport::Viewport;
-use blitz_traits::renderer::RenderBackend;
+use blitz_dom::{Document, BaseDocument, DocumentConfig};
+use blitz_html::{HtmlDocument, DocumentHtmlParser};
+use blitz_traits::events::DomEventData;
+use blitz_traits::shell::Viewport;
 use anyrender_vello::VelloRenderer;
 
 /// The main implementation of the Blitz view for WinRT integration.
@@ -68,7 +68,7 @@ pub enum ViewTask {
     LoadUrl(String),
     
     /// Process an event
-    ProcessEvent(EventData),
+    ProcessEvent(DomEventData),
     
     /// Trigger a render
     Render,
@@ -99,7 +99,8 @@ impl BlitzViewImpl {
         
         // Get surface info for initial viewport
         let surface_info = surface_manager.get_surface_info();
-        let viewport = Viewport::new(surface_info.width, surface_info.height, surface_info.scale_factor);
+        // TODO: use proper color scheme instead of hardcoded Light
+        let viewport = Viewport::new(surface_info.width, surface_info.height, surface_info.scale_factor, blitz_traits::shell::ColorScheme::Light);
         
         // Create event converter
         let mut event_converter = EventConverter::new();
@@ -286,7 +287,8 @@ impl BlitzViewImpl {
     /// Handles HTML loading in the background task.
     async fn handle_load_html(view_impl: Arc<Mutex<Self>>, html: String) {
         // Parse HTML into a document
-        let parser = HtmlParser::new();
+        let mut doc = BaseDocument::new(DocumentConfig::default());
+        let parser = DocumentHtmlParser::new(doc);
         if let Ok(document) = parser.parse_string(&html) {
             if let Ok(mut view) = view_impl.lock() {
                 view.document = Some(document);
@@ -315,14 +317,14 @@ impl BlitzViewImpl {
     }
     
     /// Handles event processing in the background task.
-    async fn handle_process_event(view_impl: Arc<Mutex<Self>>, event_data: EventData) {
+    async fn handle_process_event(view_impl: Arc<Mutex<Self>>, event_data: DomEventData) {
         if let Ok(mut view) = view_impl.lock() {
             if let Some(ref mut document) = view.document {
                 // Dispatch the event to the document
                 // This would involve finding the target element and processing the event
                 // For now, we'll just trigger a render if it's a meaningful event
                 match event_data {
-                    EventData::Pointer(_) | EventData::Keyboard(_) => {
+                    DomEventData::Pointer(_) | DomEventData::Keyboard(_) => {
                         view.render_pending = true;
                     }
                     _ => {}
@@ -360,7 +362,8 @@ impl BlitzViewImpl {
         scale_factor: f32,
     ) {
         if let Ok(mut view) = view_impl.lock() {
-            view.viewport = Viewport::new(width, height, scale_factor);
+            // TODO: use proper color scheme instead of hardcoded Light
+            view.viewport = Viewport::new(width, height, scale_factor, blitz_traits::shell::ColorScheme::Light);
             
             // Update renderer if it exists
             if let Some(ref mut renderer) = view.renderer {

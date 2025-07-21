@@ -12,14 +12,15 @@
 //! - Focus events (gained, lost)
 //! - Resize events (size changed)
 
-use blitz_dom::events::{EventData, PointerEvent, PointerData, KeyboardEvent, KeyboardData};
-use blitz_dom::node::NodeId;
+use blitz_traits::events::{DomEvent, DomEventData, BlitzMouseButtonEvent, BlitzKeyEvent, MouseEventButtons, MouseEventButton};
 use windows::Win32::UI::Input::KeyboardAndMouse::{VIRTUAL_KEY, VK_SHIFT, VK_CONTROL, VK_MENU};
 use windows::Win32::Foundation::{POINT, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL,
     WM_KEYDOWN, WM_KEYUP, WM_CHAR, WM_SETFOCUS, WM_KILLFOCUS
 };
+use keyboard_types::{Code, Key, Modifiers, Location};
+use smol_str::SmolStr;
 
 /// Represents a Windows message with its parameters.
 ///
@@ -110,8 +111,8 @@ impl EventConverter {
     ///
     /// # Returns
     ///
-    /// An optional Blitz EventData if the message can be converted
-    pub fn convert_message(&mut self, message: &WindowsMessage) -> Option<EventData> {
+    /// An optional Blitz DomEvent if the message can be converted
+    pub fn convert_message(&mut self, message: &WindowsMessage) -> Option<DomEvent> {
         // Use const values to avoid snake_case warnings
         const WM_MOUSEMOVE_VAL: u32 = WM_MOUSEMOVE;
         const WM_LBUTTONDOWN_VAL: u32 = WM_LBUTTONDOWN;
@@ -137,139 +138,164 @@ impl EventConverter {
         }
     }
     
-    /// Converts a mouse move message to a Blitz pointer event.
-    fn convert_mouse_move(&mut self, message: &WindowsMessage) -> Option<EventData> {
+    /// Converts a mouse move message to a Blitz mouse event.
+    fn convert_mouse_move(&mut self, message: &WindowsMessage) -> Option<DomEvent> {
         let (x, y) = self.extract_mouse_position(message.lparam);
         self.mouse_position = (x, y);
         self.update_modifier_state();
         
-        Some(EventData::Pointer(PointerEvent {
-            event: "pointermove".to_string(),
-            data: PointerData {
-                pointer_id: 1,
-                x: x as f64,
-                y: y as f64,
-                button: None,
-                modifiers: self.get_modifier_flags(),
-            },
-            target: NodeId::from(0u64), // Will be updated by event dispatcher
-        }))
+        let mouse_event = BlitzMouseButtonEvent {
+            x,
+            y,
+            button: MouseEventButton::None,
+            buttons: MouseEventButtons::None, // No buttons pressed for mouse move
+            mods: self.get_modifiers(),
+        };
+        
+        Some(DomEvent::new(
+            0, // Target node ID - will be updated by event dispatcher
+            DomEventData::MouseMove(mouse_event)
+        ))
     }
     
-    /// Converts a mouse button down message to a Blitz pointer event.
-    fn convert_mouse_down(&mut self, message: &WindowsMessage, button: u16) -> Option<EventData> {
+    /// Converts a mouse button down message to a Blitz mouse event.
+    fn convert_mouse_down(&mut self, message: &WindowsMessage, button: u16) -> Option<DomEvent> {
         let (x, y) = self.extract_mouse_position(message.lparam);
         self.mouse_position = (x, y);
         self.update_modifier_state();
         
-        Some(EventData::Pointer(PointerEvent {
-            event: "pointerdown".to_string(),
-            data: PointerData {
-                pointer_id: 1,
-                x: x as f64,
-                y: y as f64,
-                button: Some(button),
-                modifiers: self.get_modifier_flags(),
-            },
-            target: NodeId::from(0u64), // Will be updated by event dispatcher
-        }))
+        let (blitz_button, button_flags) = self.convert_mouse_button(button);
+        
+        let mouse_event = BlitzMouseButtonEvent {
+            x,
+            y,
+            button: blitz_button,
+            buttons: button_flags,
+            mods: self.get_modifiers(),
+        };
+        
+        Some(DomEvent::new(
+            0, // Target node ID - will be updated by event dispatcher
+            DomEventData::MouseDown(mouse_event)
+        ))
     }
     
-    /// Converts a mouse button up message to a Blitz pointer event.
-    fn convert_mouse_up(&mut self, message: &WindowsMessage, button: u16) -> Option<EventData> {
+    /// Converts a mouse button up message to a Blitz mouse event.
+    fn convert_mouse_up(&mut self, message: &WindowsMessage, button: u16) -> Option<DomEvent> {
         let (x, y) = self.extract_mouse_position(message.lparam);
         self.mouse_position = (x, y);
         self.update_modifier_state();
         
-        Some(EventData::Pointer(PointerEvent {
-            event: "pointerup".to_string(),
-            data: PointerData {
-                pointer_id: 1,
-                x: x as f64,
-                y: y as f64,
-                button: Some(button),
-                modifiers: self.get_modifier_flags(),
-            },
-            target: NodeId::from(0u64), // Will be updated by event dispatcher
-        }))
+        let (blitz_button, _) = self.convert_mouse_button(button);
+        
+        let mouse_event = BlitzMouseButtonEvent {
+            x,
+            y,
+            button: blitz_button,
+            buttons: MouseEventButtons::None, // Button is being released
+            mods: self.get_modifiers(),
+        };
+        
+        Some(DomEvent::new(
+            0, // Target node ID - will be updated by event dispatcher
+            DomEventData::MouseUp(mouse_event)
+        ))
     }
     
-    /// Converts a mouse wheel message to a Blitz wheel event.
-    fn convert_mouse_wheel(&mut self, message: &WindowsMessage) -> Option<EventData> {
+    /// Converts a mouse wheel message to a Blitz mouse event.
+    /// Note: For now we treat this as a mouse move event. Blitz may need dedicated wheel support.
+    fn convert_mouse_wheel(&mut self, message: &WindowsMessage) -> Option<DomEvent> {
         let (x, y) = self.extract_mouse_position(message.lparam);
-        let delta = self.extract_wheel_delta(message.wparam);
+        let _delta = self.extract_wheel_delta(message.wparam);
         self.update_modifier_state();
         
-        // Convert to a pointer event with wheel data
-        // Note: Blitz might need a dedicated wheel event type
-        Some(EventData::Pointer(PointerEvent {
-            event: "wheel".to_string(),
-            data: PointerData {
-                pointer_id: 1,
-                x: x as f64,
-                y: y as f64,
-                button: None,
-                modifiers: self.get_modifier_flags(),
-            },
-            target: NodeId::from(0u64), // Will be updated by event dispatcher
-        }))
+        // For now, treat wheel as mouse move since Blitz doesn't have dedicated wheel events
+        let mouse_event = BlitzMouseButtonEvent {
+            x,
+            y,
+            button: MouseEventButton::None,
+            buttons: MouseEventButtons::None,
+            mods: self.get_modifiers(),
+        };
+        
+        Some(DomEvent::new(
+            0, // Target node ID - will be updated by event dispatcher
+            DomEventData::MouseMove(mouse_event)
+        ))
     }
     
     /// Converts a key down message to a Blitz keyboard event.
-    fn convert_key_down(&mut self, message: &WindowsMessage) -> Option<EventData> {
+    fn convert_key_down(&mut self, message: &WindowsMessage) -> Option<DomEvent> {
         let virtual_key = message.wparam as u16;
         self.update_modifier_state_from_key(virtual_key, true);
         
-        let key_code = self.virtual_key_to_key_code(virtual_key)?;
+        let key = self.virtual_key_to_key(virtual_key)?;
+        let code = self.virtual_key_to_code(virtual_key)?;
         
-        Some(EventData::Keyboard(KeyboardEvent {
-            event: "keydown".to_string(),
-            data: KeyboardData {
-                key: self.virtual_key_to_key_string(virtual_key),
-                code: key_code,
-                modifiers: self.get_modifier_flags(),
-                repeat: false, // TODO: Track repeat state
-            },
-            target: NodeId::from(0u64), // Will be updated by event dispatcher
-        }))
+        let key_event = BlitzKeyEvent {
+            key,
+            code,
+            modifiers: self.get_modifiers(),
+            location: Location::Standard,
+            is_auto_repeating: false, // TODO: Track repeat state
+            is_composing: false,
+            state: keyboard_types::KeyState::Down,
+            text: None,
+        };
+        
+        Some(DomEvent::new(
+            0, // Target node ID - will be updated by event dispatcher
+            DomEventData::KeyDown(key_event)
+        ))
     }
     
     /// Converts a key up message to a Blitz keyboard event.
-    fn convert_key_up(&mut self, message: &WindowsMessage) -> Option<EventData> {
+    fn convert_key_up(&mut self, message: &WindowsMessage) -> Option<DomEvent> {
         let virtual_key = message.wparam as u16;
         self.update_modifier_state_from_key(virtual_key, false);
         
-        let key_code = self.virtual_key_to_key_code(virtual_key)?;
+        let key = self.virtual_key_to_key(virtual_key)?;
+        let code = self.virtual_key_to_code(virtual_key)?;
         
-        Some(EventData::Keyboard(KeyboardEvent {
-            event: "keyup".to_string(),
-            data: KeyboardData {
-                key: self.virtual_key_to_key_string(virtual_key),
-                code: key_code,
-                modifiers: self.get_modifier_flags(),
-                repeat: false,
-            },
-            target: NodeId::from(0u64), // Will be updated by event dispatcher
-        }))
+        let key_event = BlitzKeyEvent {
+            key,
+            code,
+            modifiers: self.get_modifiers(),
+            location: Location::Standard,
+            is_auto_repeating: false,
+            is_composing: false,
+            state: keyboard_types::KeyState::Up,
+            text: None,
+        };
+        
+        Some(DomEvent::new(
+            0, // Target node ID - will be updated by event dispatcher
+            DomEventData::KeyUp(key_event)
+        ))
     }
     
-    /// Converts a character input message to a Blitz keyboard event.
-    fn convert_char(&mut self, message: &WindowsMessage) -> Option<EventData> {
+    /// Converts a character input message to a Blitz input event.
+    fn convert_char(&mut self, message: &WindowsMessage) -> Option<DomEvent> {
         let char_code = message.wparam as u32;
         
         // Convert the character code to a Unicode character
         let character = char::from_u32(char_code)?;
         
-        Some(EventData::Keyboard(KeyboardEvent {
-            event: "input".to_string(),
-            data: KeyboardData {
-                key: character.to_string(),
-                code: format!("U+{:04X}", char_code),
-                modifiers: self.get_modifier_flags(),
-                repeat: false,
-            },
-            target: NodeId::from(0u64), // Will be updated by event dispatcher
-        }))
+        let key_event = BlitzKeyEvent {
+            key: Key::Character(SmolStr::new(character.to_string())),
+            code: Code::Unidentified,
+            modifiers: self.get_modifiers(),
+            location: Location::Standard,
+            is_auto_repeating: false,
+            is_composing: false,
+            state: keyboard_types::KeyState::Down,
+            text: Some(SmolStr::new(character.to_string())),
+        };
+        
+        Some(DomEvent::new(
+            0, // Target node ID - will be updated by event dispatcher
+            DomEventData::KeyPress(key_event)
+        ))
     }
     
     /// Extracts mouse position from LPARAM, accounting for DPI scaling.
@@ -293,6 +319,152 @@ impl EventConverter {
         // For now, we'll rely on key events to track modifiers
     }
     
+    /// Converts Windows mouse button to Blitz mouse button and flags.
+    fn convert_mouse_button(&self, button: u16) -> (MouseEventButton, MouseEventButtons) {
+        match button {
+            0 => (MouseEventButton::Primary, MouseEventButtons::Primary),
+            1 => (MouseEventButton::Auxiliary, MouseEventButtons::Auxiliary),
+            2 => (MouseEventButton::Secondary, MouseEventButtons::Secondary),
+            _ => (MouseEventButton::None, MouseEventButtons::None),
+        }
+    }
+    
+    /// Converts modifier state to keyboard-types Modifiers.
+    fn get_modifiers(&self) -> Modifiers {
+        let mut mods = Modifiers::empty();
+        
+        if self.modifier_state.shift {
+            mods |= Modifiers::SHIFT;
+        }
+        if self.modifier_state.ctrl {
+            mods |= Modifiers::CONTROL;
+        }
+        if self.modifier_state.alt {
+            mods |= Modifiers::ALT;
+        }
+        
+        mods
+    }
+    
+    /// Converts Windows virtual key to keyboard-types Key.
+    fn virtual_key_to_key(&self, virtual_key: u16) -> Option<Key> {
+        match virtual_key {
+            0x08 => Some(Key::Backspace),
+            0x09 => Some(Key::Tab),
+            0x0D => Some(Key::Enter),
+            0x10 => Some(Key::Shift),
+            0x11 => Some(Key::Control),
+            0x12 => Some(Key::Alt),
+            0x1B => Some(Key::Escape),
+            0x20 => Some(Key::Character(SmolStr::new(" "))),
+            0x25 => Some(Key::ArrowLeft),
+            0x26 => Some(Key::ArrowUp),
+            0x27 => Some(Key::ArrowRight),
+            0x28 => Some(Key::ArrowDown),
+            0x2E => Some(Key::Delete),
+            0x30..=0x39 => {
+                let digit = (virtual_key - 0x30) as u8 as char;
+                Some(Key::Character(SmolStr::new(digit.to_string())))
+            }
+            0x41..=0x5A => {
+                let c = (virtual_key as u8) as char;
+                let key_str = if self.modifier_state.shift {
+                    c.to_uppercase().to_string()
+                } else {
+                    c.to_lowercase().to_string()
+                };
+                Some(Key::Character(SmolStr::new(key_str)))
+            }
+            0x70..=0x87 => {
+                let f_num = virtual_key - 0x6F;
+                match f_num {
+                    1 => Some(Key::F1),
+                    2 => Some(Key::F2),
+                    3 => Some(Key::F3),
+                    4 => Some(Key::F4),
+                    5 => Some(Key::F5),
+                    6 => Some(Key::F6),
+                    7 => Some(Key::F7),
+                    8 => Some(Key::F8),
+                    9 => Some(Key::F9),
+                    10 => Some(Key::F10),
+                    11 => Some(Key::F11),
+                    12 => Some(Key::F12),
+                    _ => Some(Key::Unidentified),
+                }
+            }
+            _ => Some(Key::Unidentified),
+        }
+    }
+    
+    /// Converts Windows virtual key to keyboard-types Code.
+    fn virtual_key_to_code(&self, virtual_key: u16) -> Option<Code> {
+        match virtual_key {
+            0x08 => Some(Code::Backspace),
+            0x09 => Some(Code::Tab),
+            0x0D => Some(Code::Enter),
+            0x10 => Some(Code::ShiftLeft), // TODO: Distinguish left/right
+            0x11 => Some(Code::ControlLeft),
+            0x12 => Some(Code::AltLeft),
+            0x1B => Some(Code::Escape),
+            0x20 => Some(Code::Space),
+            0x25 => Some(Code::ArrowLeft),
+            0x26 => Some(Code::ArrowUp),
+            0x27 => Some(Code::ArrowRight),
+            0x28 => Some(Code::ArrowDown),
+            0x2E => Some(Code::Delete),
+            0x30 => Some(Code::Digit0),
+            0x31 => Some(Code::Digit1),
+            0x32 => Some(Code::Digit2),
+            0x33 => Some(Code::Digit3),
+            0x34 => Some(Code::Digit4),
+            0x35 => Some(Code::Digit5),
+            0x36 => Some(Code::Digit6),
+            0x37 => Some(Code::Digit7),
+            0x38 => Some(Code::Digit8),
+            0x39 => Some(Code::Digit9),
+            0x41 => Some(Code::KeyA),
+            0x42 => Some(Code::KeyB),
+            0x43 => Some(Code::KeyC),
+            0x44 => Some(Code::KeyD),
+            0x45 => Some(Code::KeyE),
+            0x46 => Some(Code::KeyF),
+            0x47 => Some(Code::KeyG),
+            0x48 => Some(Code::KeyH),
+            0x49 => Some(Code::KeyI),
+            0x4A => Some(Code::KeyJ),
+            0x4B => Some(Code::KeyK),
+            0x4C => Some(Code::KeyL),
+            0x4D => Some(Code::KeyM),
+            0x4E => Some(Code::KeyN),
+            0x4F => Some(Code::KeyO),
+            0x50 => Some(Code::KeyP),
+            0x51 => Some(Code::KeyQ),
+            0x52 => Some(Code::KeyR),
+            0x53 => Some(Code::KeyS),
+            0x54 => Some(Code::KeyT),
+            0x55 => Some(Code::KeyU),
+            0x56 => Some(Code::KeyV),
+            0x57 => Some(Code::KeyW),
+            0x58 => Some(Code::KeyX),
+            0x59 => Some(Code::KeyY),
+            0x5A => Some(Code::KeyZ),
+            0x70 => Some(Code::F1),
+            0x71 => Some(Code::F2),
+            0x72 => Some(Code::F3),
+            0x73 => Some(Code::F4),
+            0x74 => Some(Code::F5),
+            0x75 => Some(Code::F6),
+            0x76 => Some(Code::F7),
+            0x77 => Some(Code::F8),
+            0x78 => Some(Code::F9),
+            0x79 => Some(Code::F10),
+            0x7A => Some(Code::F11),
+            0x7B => Some(Code::F12),
+            _ => Some(Code::Unidentified),
+        }
+    }
+    
     /// Updates modifier state based on key press/release.
     fn update_modifier_state_from_key(&mut self, virtual_key: u16, pressed: bool) {
         // Use const values to avoid snake_case warnings
@@ -305,77 +477,6 @@ impl EventConverter {
             key if key.0 == VK_CONTROL_VAL => self.modifier_state.ctrl = pressed,
             key if key.0 == VK_MENU_VAL => self.modifier_state.alt = pressed, // VK_MENU is Alt key
             _ => {}
-        }
-    }
-    
-    /// Converts modifier state to Blitz modifier flags.
-    fn get_modifier_flags(&self) -> u32 {
-        let mut flags = 0u32;
-        
-        if self.modifier_state.shift {
-            flags |= 1; // Shift flag
-        }
-        if self.modifier_state.ctrl {
-            flags |= 2; // Ctrl flag
-        }
-        if self.modifier_state.alt {
-            flags |= 4; // Alt flag
-        }
-        
-        flags
-    }
-    
-    /// Converts Windows virtual key to Blitz key code.
-    fn virtual_key_to_key_code(&self, virtual_key: u16) -> Option<String> {
-        // Convert common virtual keys to web-standard key codes
-        match virtual_key {
-            0x08 => Some("Backspace".to_string()),
-            0x09 => Some("Tab".to_string()),
-            0x0D => Some("Enter".to_string()),
-            0x10 => Some("ShiftLeft".to_string()), // TODO: Distinguish left/right
-            0x11 => Some("ControlLeft".to_string()),
-            0x12 => Some("AltLeft".to_string()),
-            0x1B => Some("Escape".to_string()),
-            0x20 => Some("Space".to_string()),
-            0x25 => Some("ArrowLeft".to_string()),
-            0x26 => Some("ArrowUp".to_string()),
-            0x27 => Some("ArrowRight".to_string()),
-            0x28 => Some("ArrowDown".to_string()),
-            0x2E => Some("Delete".to_string()),
-            0x30..=0x39 => Some(format!("Digit{}", virtual_key - 0x30)), // 0-9
-            0x41..=0x5A => Some(format!("Key{}", char::from(virtual_key as u8))), // A-Z
-            0x70..=0x87 => Some(format!("F{}", virtual_key - 0x6F)), // F1-F24
-            _ => Some(format!("Unidentified{}", virtual_key)),
-        }
-    }
-    
-    /// Converts Windows virtual key to readable key string.
-    fn virtual_key_to_key_string(&self, virtual_key: u16) -> String {
-        match virtual_key {
-            0x08 => "Backspace".to_string(),
-            0x09 => "Tab".to_string(),
-            0x0D => "Enter".to_string(),
-            0x10 => "Shift".to_string(),
-            0x11 => "Control".to_string(),
-            0x12 => "Alt".to_string(),
-            0x1B => "Escape".to_string(),
-            0x20 => " ".to_string(), // Space shows as actual space
-            0x25 => "ArrowLeft".to_string(),
-            0x26 => "ArrowUp".to_string(),
-            0x27 => "ArrowRight".to_string(),
-            0x28 => "ArrowDown".to_string(),
-            0x2E => "Delete".to_string(),
-            0x30..=0x39 => (virtual_key - 0x30).to_string(), // 0-9
-            0x41..=0x5A => {
-                let c = char::from(virtual_key as u8);
-                if self.modifier_state.shift {
-                    c.to_uppercase().to_string()
-                } else {
-                    c.to_lowercase().to_string()
-                }
-            }
-            0x70..=0x87 => format!("F{}", virtual_key - 0x6F), // F1-F24
-            _ => "Unidentified".to_string(),
         }
     }
 }
@@ -433,19 +534,5 @@ mod tests {
         // Test shift key release
         converter.update_modifier_state_from_key(0x10, false);
         assert!(!converter.modifier_state.shift);
-    }
-
-    #[test]
-    fn test_virtual_key_conversion() {
-        let converter = EventConverter::new();
-        
-        // Test space key
-        assert_eq!(converter.virtual_key_to_key_code(0x20), Some("Space".to_string()));
-        
-        // Test A key
-        assert_eq!(converter.virtual_key_to_key_code(0x41), Some("KeyA".to_string()));
-        
-        // Test F1 key
-        assert_eq!(converter.virtual_key_to_key_code(0x70), Some("F1".to_string()));
     }
 }

@@ -735,7 +735,7 @@ dependencies = [
  "euclid",
  "html-escape",
  "image",
- "keyboard-types 0.7.0",
+ "keyboard-types",
  "markup5ever",
  "objc2 0.6.1",
  "parley",
@@ -834,7 +834,7 @@ dependencies = [
  "blitz-paint",
  "blitz-traits",
  "futures-util",
- "keyboard-types 0.7.0",
+ "keyboard-types",
  "tracing",
  "winit",
 ]
@@ -847,7 +847,7 @@ dependencies = [
  "bytes",
  "cursor-icon",
  "http",
- "keyboard-types 0.7.0",
+ "keyboard-types",
  "smol_str",
  "url",
 ]
@@ -856,9 +856,20 @@ dependencies = [
 name = "blitz-winrt"
 version = "0.1.0"
 dependencies = [
+ "anyrender_vello",
+ "blitz-dom",
+ "blitz-html",
+ "blitz-traits",
+ "bytes",
  "comrak 0.40.0",
- "keyboard-types 0.8.0",
+ "keyboard-types",
+ "rustc-hash 1.1.0",
  "scopeguard",
+ "smol_str",
+ "tokio",
+ "tracing",
+ "vello",
+ "wgpu 24.0.5",
  "windows 0.61.3",
  "windows-bindgen",
  "windows-core 0.61.2",
@@ -1886,7 +1897,7 @@ dependencies = [
  "euclid",
  "futures-channel",
  "generational-box",
- "keyboard-types 0.7.0",
+ "keyboard-types",
  "lazy-js-bundle",
  "rustversion",
  "serde",
@@ -3393,16 +3404,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "keyboard-types"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd6e0f18953c66af118a70064505bd3780a226d65b06553b7293fb8933067967"
-dependencies = [
- "bitflags 2.9.1",
- "serde",
-]
-
-[[package]]
 name = "khronos-egl"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3754,7 +3755,7 @@ dependencies = [
  "dioxus-hooks",
  "dioxus-html",
  "futures-util",
- "keyboard-types 0.7.0",
+ "keyboard-types",
  "rustc-hash 1.1.0",
  "tokio",
  "tracing",

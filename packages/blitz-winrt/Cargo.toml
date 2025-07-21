@@ -12,13 +12,33 @@ repository = ""
 crate-type = ["cdylib"]
 
 [dependencies]
+# Core Blitz dependencies
+blitz-dom = { workspace = true, features = ["default"] }
+blitz-traits = { workspace = true }
+blitz-html = { workspace = true }
+
+# Rendering dependencies
+anyrender_vello = { workspace = true }
+wgpu = { workspace = true }
+vello = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true, features = ["macros", "rt", "sync"] }
+
+# Windows-specific dependencies
 comrak = { version = "0.40.0", default-features = false }
-keyboard-types = "0.8.0"
+keyboard-types = { workspace = true }
 scopeguard = "1.2"
 windows.workspace = true
 windows-core.workspace = true
 windows-targets.workspace = true
 windows-numerics.workspace = true
+
+# Utility dependencies
+rustc-hash = { workspace = true }
+bytes = { workspace = true }
+tracing = { workspace = true }
+smol_str = { workspace = true }
 
 [build-dependencies]
 windows-bindgen.workspace=true
