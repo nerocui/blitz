@@ -55,6 +55,7 @@ pub struct ModifierState {
 ///
 /// This struct maintains state needed for proper event conversion, such as
 /// tracking mouse position and modifier key states.
+#[derive(Debug)]
 pub struct EventConverter {
     /// Current mouse position relative to the SwapChainPanel
     mouse_position: (f32, f32),

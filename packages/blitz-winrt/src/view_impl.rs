@@ -59,6 +59,23 @@ pub struct BlitzViewImpl {
     render_pending: bool,
 }
 
+impl std::fmt::Debug for BlitzViewImpl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BlitzViewImpl")
+            .field("surface_manager", &self.surface_manager)
+            .field("event_converter", &self.event_converter)
+            .field("document", &self.document.is_some()) // Just show if document exists
+            .field("renderer", &self.renderer.is_some()) // Just show if renderer exists
+            .field("viewport", &self.viewport)
+            .field("is_dark_mode", &self.is_dark_mode)
+            .field("task_sender", &self.task_sender.is_some()) // Just show if sender exists
+            .field("task_handle", &self.task_handle.is_some()) // Just show if handle exists
+            .field("style_cache", &self.style_cache)
+            .field("render_pending", &self.render_pending)
+            .finish()
+    }
+}
+
 /// Tasks that can be sent to the async task runner.
 #[derive(Debug)]
 pub enum ViewTask {

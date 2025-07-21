@@ -35,6 +35,7 @@ pub struct SurfaceInfo {
 /// This struct encapsulates the complex process of creating a WGPU surface
 /// from a Windows SwapChainPanel control, handling the necessary DirectX
 /// integration and surface configuration.
+#[derive(Debug)]
 pub struct SurfaceManager {
     /// The WGPU instance used for surface creation
     instance: Instance,
