@@ -468,11 +468,11 @@ impl EventConverter {
     /// Updates modifier state based on key press/release.
     fn update_modifier_state_from_key(&mut self, virtual_key: u16, pressed: bool) {
         // Use const values to avoid snake_case warnings
-        const VK_SHIFT_VAL: i32 = VK_SHIFT.0 as i32;
-        const VK_CONTROL_VAL: i32 = VK_CONTROL.0 as i32;
-        const VK_MENU_VAL: i32 = VK_MENU.0 as i32;
+        const VK_SHIFT_VAL: u16 = VK_SHIFT.0;
+        const VK_CONTROL_VAL: u16 = VK_CONTROL.0;
+        const VK_MENU_VAL: u16 = VK_MENU.0;
         
-        match VIRTUAL_KEY(virtual_key as i32) {
+        match VIRTUAL_KEY(virtual_key) {
             key if key.0 == VK_SHIFT_VAL => self.modifier_state.shift = pressed,
             key if key.0 == VK_CONTROL_VAL => self.modifier_state.ctrl = pressed,
             key if key.0 == VK_MENU_VAL => self.modifier_state.alt = pressed, // VK_MENU is Alt key
