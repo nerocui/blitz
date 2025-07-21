@@ -343,25 +343,32 @@ impl BlitzViewImpl {
                 return;
             }
             
-            if let (Some(ref document), Some(ref mut renderer)) = (&view.document, &mut view.renderer) {
-                // Render using the SwapChain renderer
-                let render_result = renderer.render(|scene| {
-                    // TODO: Implement actual scene painting
-                    // This would involve:
-                    // 1. Walking the DOM tree
-                    // 2. Applying CSS styles
-                    // 3. Converting to Vello drawing commands
+            // Check if we have both document and renderer before proceeding
+            let has_document = view.document.is_some();
+            let has_renderer = view.renderer.is_some();
+            
+            if has_document && has_renderer {
+                // Get the renderer separately to avoid borrowing conflicts
+                if let Some(ref mut renderer) = view.renderer {
+                    // Render using the SwapChain renderer
+                    let render_result = renderer.render(|scene| {
+                        // TODO: Implement actual scene painting
+                        // This would involve:
+                        // 1. Walking the DOM tree
+                        // 2. Applying CSS styles
+                        // 3. Converting to Vello drawing commands
+                        
+                        // For now, just clear the scene
+                        scene.reset();
+                    });
                     
-                    // For now, just clear the scene
-                    scene.reset();
-                });
-                
-                if let Err(e) = render_result {
-                    // Log rendering error
-                    // TODO: Add proper error handling/logging
+                    if let Err(e) = render_result {
+                        // Log rendering error
+                        // TODO: Add proper error handling/logging
+                    }
+                    
+                    view.render_pending = false;
                 }
-                
-                view.render_pending = false;
             }
         }
     }
