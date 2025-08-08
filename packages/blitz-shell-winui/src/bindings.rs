@@ -13,7 +13,7 @@
 pub struct Host(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(Host, windows_core::IUnknown, windows_core::IInspectable);
 impl Host {
-    pub fn SetPanel<P0>(&self, panel: P0) -> windows_core::Result<()>
+    pub fn SetPanel<P0>(&self, attacher: P0) -> windows_core::Result<()>
     where
         P0: windows_core::Param<windows_core::IInspectable>,
     {
@@ -21,7 +21,7 @@ impl Host {
         unsafe {
             (windows_core::Interface::vtable(this).SetPanel)(
                 windows_core::Interface::as_raw(this),
-                panel.param().abi(),
+                attacher.param().abi(),
             )
             .ok()
         }
@@ -57,8 +57,19 @@ impl Host {
             .ok()
         }
     }
+    pub fn TestAttacherConnection(&self) -> windows_core::Result<bool> {
+        let this = self;
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).TestAttacherConnection)(
+                windows_core::Interface::as_raw(this),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
     pub fn CreateInstance<P0>(
-        panel: P0,
+        attacher: P0,
         width: u32,
         height: u32,
         scale: f32,
@@ -70,7 +81,7 @@ impl Host {
             let mut result__ = core::mem::zeroed();
             (windows_core::Interface::vtable(this).CreateInstance)(
                 windows_core::Interface::as_raw(this),
-                panel.param().abi(),
+                attacher.param().abi(),
                 width,
                 height,
                 scale,
@@ -96,37 +107,38 @@ unsafe impl windows_core::Interface for Host {
     const IID: windows_core::GUID = <IHost as windows_core::Interface>::IID;
 }
 impl windows_core::RuntimeName for Host {
-    const NAME: &'static str = "Blitz.WinUI.Host";
+    const NAME: &'static str = "BlitzWinUI.Host";
 }
 unsafe impl Send for Host {}
 unsafe impl Sync for Host {}
-windows_core::imp::define_interface!(IHost, IHost_Vtbl, 0x6c1c1d48_158a_540b_be6a_850e1384ade6);
+windows_core::imp::define_interface!(IHost, IHost_Vtbl, 0xc40aa8cf_6891_5b51_9c4d_f87a066918e9);
 impl windows_core::RuntimeType for IHost {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl windows_core::RuntimeName for IHost {
-    const NAME: &'static str = "Blitz.WinUI.IHost";
+    const NAME: &'static str = "BlitzWinUI.IHost";
 }
 pub trait IHost_Impl: windows_core::IUnknownImpl {
     fn SetPanel(
         &self,
-        panel: windows_core::Ref<'_, windows_core::IInspectable>,
+        attacher: windows_core::Ref<'_, windows_core::IInspectable>,
     ) -> windows_core::Result<()>;
     fn Resize(&self, width: u32, height: u32, scale: f32) -> windows_core::Result<()>;
     fn RenderOnce(&self) -> windows_core::Result<()>;
     fn LoadHtml(&self, html: &windows_core::HSTRING) -> windows_core::Result<()>;
+    fn TestAttacherConnection(&self) -> windows_core::Result<bool>;
 }
 impl IHost_Vtbl {
     pub const fn new<Identity: IHost_Impl, const OFFSET: isize>() -> Self {
         unsafe extern "system" fn SetPanel<Identity: IHost_Impl, const OFFSET: isize>(
             this: *mut core::ffi::c_void,
-            panel: *mut core::ffi::c_void,
+            attacher: *mut core::ffi::c_void,
         ) -> windows_core::HRESULT {
             unsafe {
                 let this: &Identity =
                     &*((this as *const *const ()).offset(OFFSET) as *const Identity);
-                IHost_Impl::SetPanel(this, core::mem::transmute_copy(&panel)).into()
+                IHost_Impl::SetPanel(this, core::mem::transmute_copy(&attacher)).into()
             }
         }
         unsafe extern "system" fn Resize<Identity: IHost_Impl, const OFFSET: isize>(
@@ -160,12 +172,32 @@ impl IHost_Vtbl {
                 IHost_Impl::LoadHtml(this, core::mem::transmute(&html)).into()
             }
         }
+        unsafe extern "system" fn TestAttacherConnection<
+            Identity: IHost_Impl,
+            const OFFSET: isize,
+        >(
+            this: *mut core::ffi::c_void,
+            result__: *mut bool,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                match IHost_Impl::TestAttacherConnection(this) {
+                    Ok(ok__) => {
+                        result__.write(core::mem::transmute_copy(&ok__));
+                        windows_core::HRESULT(0)
+                    }
+                    Err(err) => err.into(),
+                }
+            }
+        }
         Self {
             base__: windows_core::IInspectable_Vtbl::new::<Identity, IHost, OFFSET>(),
             SetPanel: SetPanel::<Identity, OFFSET>,
             Resize: Resize::<Identity, OFFSET>,
             RenderOnce: RenderOnce::<Identity, OFFSET>,
             LoadHtml: LoadHtml::<Identity, OFFSET>,
+            TestAttacherConnection: TestAttacherConnection::<Identity, OFFSET>,
         }
     }
     pub fn matches(iid: &windows_core::GUID) -> bool {
@@ -187,23 +219,25 @@ pub struct IHost_Vtbl {
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
+    pub TestAttacherConnection:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IHostFactory,
     IHostFactory_Vtbl,
-    0x203a7133_1999_5c5a_be38_1fc995de4b06
+    0x858fc9c7_4631_527b_bbee_315bebb62b45
 );
 impl windows_core::RuntimeType for IHostFactory {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl windows_core::RuntimeName for IHostFactory {
-    const NAME: &'static str = "Blitz.WinUI.IHostFactory";
+    const NAME: &'static str = "BlitzWinUI.IHostFactory";
 }
 pub trait IHostFactory_Impl: windows_core::IUnknownImpl {
     fn CreateInstance(
         &self,
-        panel: windows_core::Ref<'_, windows_core::IInspectable>,
+        attacher: windows_core::Ref<'_, windows_core::IInspectable>,
         width: u32,
         height: u32,
         scale: f32,
@@ -216,7 +250,7 @@ impl IHostFactory_Vtbl {
             const OFFSET: isize,
         >(
             this: *mut core::ffi::c_void,
-            panel: *mut core::ffi::c_void,
+            attacher: *mut core::ffi::c_void,
             width: u32,
             height: u32,
             scale: f32,
@@ -227,7 +261,7 @@ impl IHostFactory_Vtbl {
                     &*((this as *const *const ()).offset(OFFSET) as *const Identity);
                 match IHostFactory_Impl::CreateInstance(
                     this,
-                    core::mem::transmute_copy(&panel),
+                    core::mem::transmute_copy(&attacher),
                     width,
                     height,
                     scale,
@@ -262,4 +296,101 @@ pub struct IHostFactory_Vtbl {
         f32,
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    ISwapChainAttacher,
+    ISwapChainAttacher_Vtbl,
+    0x36f88d95_0e3c_4e2a_a276_8a7a3b138b91
+);
+impl windows_core::RuntimeType for ISwapChainAttacher {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+windows_core::imp::interface_hierarchy!(
+    ISwapChainAttacher,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl ISwapChainAttacher {
+    pub fn AttachSwapChain(&self, swapchainptr: u64) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).AttachSwapChain)(
+                windows_core::Interface::as_raw(this),
+                swapchainptr,
+            )
+            .ok()
+        }
+    }
+    pub fn TestAttacherConnection(&self) -> windows_core::Result<bool> {
+        let this = self;
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).TestAttacherConnection)(
+                windows_core::Interface::as_raw(this),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+}
+impl windows_core::RuntimeName for ISwapChainAttacher {
+    const NAME: &'static str = "BlitzWinUI.ISwapChainAttacher";
+}
+pub trait ISwapChainAttacher_Impl: windows_core::IUnknownImpl {
+    fn AttachSwapChain(&self, swapchainPtr: u64) -> windows_core::Result<()>;
+    fn TestAttacherConnection(&self) -> windows_core::Result<bool>;
+}
+impl ISwapChainAttacher_Vtbl {
+    pub const fn new<Identity: ISwapChainAttacher_Impl, const OFFSET: isize>() -> Self {
+        unsafe extern "system" fn AttachSwapChain<
+            Identity: ISwapChainAttacher_Impl,
+            const OFFSET: isize,
+        >(
+            this: *mut core::ffi::c_void,
+            swapchainptr: u64,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                ISwapChainAttacher_Impl::AttachSwapChain(this, swapchainptr).into()
+            }
+        }
+        unsafe extern "system" fn TestAttacherConnection<
+            Identity: ISwapChainAttacher_Impl,
+            const OFFSET: isize,
+        >(
+            this: *mut core::ffi::c_void,
+            result__: *mut bool,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                match ISwapChainAttacher_Impl::TestAttacherConnection(this) {
+                    Ok(ok__) => {
+                        result__.write(core::mem::transmute_copy(&ok__));
+                        windows_core::HRESULT(0)
+                    }
+                    Err(err) => err.into(),
+                }
+            }
+        }
+        Self {
+            base__: windows_core::IInspectable_Vtbl::new::<Identity, ISwapChainAttacher, OFFSET>(),
+            AttachSwapChain: AttachSwapChain::<Identity, OFFSET>,
+            TestAttacherConnection: TestAttacherConnection::<Identity, OFFSET>,
+        }
+    }
+    pub fn matches(iid: &windows_core::GUID) -> bool {
+        iid == &<ISwapChainAttacher as windows_core::Interface>::IID
+    }
+}
+#[repr(C)]
+#[doc(hidden)]
+pub struct ISwapChainAttacher_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub AttachSwapChain:
+        unsafe extern "system" fn(*mut core::ffi::c_void, u64) -> windows_core::HRESULT,
+    pub TestAttacherConnection:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
 }

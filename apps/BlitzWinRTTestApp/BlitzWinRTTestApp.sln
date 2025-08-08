@@ -1,0 +1,57 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36310.24 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlitzWinRTTestApp", "BlitzWinRTTestApp\BlitzWinRTTestApp.csproj", "{DA208168-5381-4656-A7F6-8DB4880DE56A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlitzWinUIProjection", "Blitz.WinUIProjection\BlitzWinUIProjection.csproj", "{F3847092-643A-4BB6-9632-071D5FA32C14}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|ARM64 = Debug|ARM64
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|ARM64 = Release|ARM64
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Debug|ARM64.Build.0 = Debug|ARM64
+		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Debug|ARM64.Deploy.0 = Debug|ARM64
+		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Debug|x64.ActiveCfg = Debug|x64
+		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Debug|x64.Build.0 = Debug|x64
+		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Debug|x64.Deploy.0 = Debug|x64
+		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Debug|x86.ActiveCfg = Debug|x86
+		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Debug|x86.Build.0 = Debug|x86
+		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Debug|x86.Deploy.0 = Debug|x86
+		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Release|ARM64.ActiveCfg = Release|ARM64
+		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Release|ARM64.Build.0 = Release|ARM64
+		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Release|ARM64.Deploy.0 = Release|ARM64
+		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Release|x64.ActiveCfg = Release|x64
+		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Release|x64.Build.0 = Release|x64
+		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Release|x64.Deploy.0 = Release|x64
+		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Release|x86.ActiveCfg = Release|x86
+		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Release|x86.Build.0 = Release|x86
+		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Release|x86.Deploy.0 = Release|x86
+		{F3847092-643A-4BB6-9632-071D5FA32C14}.Debug|ARM64.ActiveCfg = Debug|Any CPU
+		{F3847092-643A-4BB6-9632-071D5FA32C14}.Debug|ARM64.Build.0 = Debug|Any CPU
+		{F3847092-643A-4BB6-9632-071D5FA32C14}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{F3847092-643A-4BB6-9632-071D5FA32C14}.Debug|x64.Build.0 = Debug|Any CPU
+		{F3847092-643A-4BB6-9632-071D5FA32C14}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{F3847092-643A-4BB6-9632-071D5FA32C14}.Debug|x86.Build.0 = Debug|Any CPU
+		{F3847092-643A-4BB6-9632-071D5FA32C14}.Release|ARM64.ActiveCfg = Release|Any CPU
+		{F3847092-643A-4BB6-9632-071D5FA32C14}.Release|ARM64.Build.0 = Release|Any CPU
+		{F3847092-643A-4BB6-9632-071D5FA32C14}.Release|x64.ActiveCfg = Release|Any CPU
+		{F3847092-643A-4BB6-9632-071D5FA32C14}.Release|x64.Build.0 = Release|Any CPU
+		{F3847092-643A-4BB6-9632-071D5FA32C14}.Release|x86.ActiveCfg = Release|Any CPU
+		{F3847092-643A-4BB6-9632-071D5FA32C14}.Release|x86.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {B8DEADBB-E0B0-4F87-8E93-CFF88724CE9F}
+	EndGlobalSection
+EndGlobal

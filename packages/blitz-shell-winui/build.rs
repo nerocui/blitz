@@ -1,10 +1,10 @@
 use std::env;
 
 fn main() {
-    println!("cargo:rerun-if-changed=idl/Blitz.WinUI.idl");
+    println!("cargo:rerun-if-changed=idl/BlitzWinUI.idl");
     let metadata_dir = format!("{}\\System32\\WinMetadata", env!("windir"));
     let mut command = std::process::Command::new("midlrt.exe");
-    let winmd_str = "Generated Files/BlitzWinRT.winmd";
+    let winmd_str = "Generated Files/BlitzWinUI.winmd";
 
     // make "Generated Files" directory if it doesn't exist
     std::fs::create_dir_all("Generated Files").unwrap();
@@ -20,7 +20,7 @@ fn main() {
         &format!("{metadata_dir}\\Windows.Foundation.winmd"),
         "/winmd",
         &winmd_str,
-        "idl/Blitz.WinUI.idl",
+        "idl/BlitzWinUI.idl",
     ]);
 
     if !command.status().unwrap().success() {
@@ -35,7 +35,7 @@ fn main() {
         "--out",
         "src/bindings.rs",
     "--filter",
-    "Blitz.WinUI",
+    "BlitzWinUI",
         "--flat",
         "--implement",
     ]);
@@ -44,7 +44,4 @@ fn main() {
     for warning in warnings.iter() {
         println!("cargo:warning={}", warning);
     }
-    // {
-    //     panic!("{error}");
-    // }
 }

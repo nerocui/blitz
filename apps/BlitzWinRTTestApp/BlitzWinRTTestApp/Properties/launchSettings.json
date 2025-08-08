@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "BlitzWinRTTestApp (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "BlitzWinRTTestApp (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
