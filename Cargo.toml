@@ -11,6 +11,7 @@ members = [
   "packages/blitz-net",
   "packages/blitz-paint",
   "packages/blitz-shell",
+  "packages/blitz-shell-winui",
   "packages/blitz",
   "packages/mini-dxn",
   "packages/stylo_taffy",

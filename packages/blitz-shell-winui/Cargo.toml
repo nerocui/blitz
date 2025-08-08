@@ -1,0 +1,44 @@
+[package]
+name = "blitz-shell-winui"
+description = "SwapChainPanel-based shell for hosting Blitz in WinAppSDK/WinUI apps via WinRT component"
+version = "0.1.0-rc.2"
+homepage = "https://github.com/dioxuslabs/blitz"
+repository = "https://github.com/dioxuslabs/blitz"
+documentation = "https://docs.rs/blitz-shell-winui"
+license.workspace = true
+edition = "2024"
+
+[lib]
+name = "blitz_winui"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Future: feature flags to toggle net/accessibility
+
+[dependencies]
+anyrender = { workspace = true }
+anyrender_vello = { workspace = true }
+blitz-dom = { workspace = true, features = ["default"] }
+blitz-html = { workspace = true }
+blitz-paint = { workspace = true }
+blitz-traits = { workspace = true }
+raw-window-handle = { workspace = true }
+wgpu = { workspace = true }
+vello = { workspace = true }
+keyboard-types = { workspace = true }
+windows = { version = "0.58", features = [
+	"Win32_Foundation",
+	"Win32_UI_WindowsAndMessaging",
+	"Win32_UI_Input_KeyboardAndMouse",
+	"Win32_Graphics_Dxgi",
+	"Win32_Graphics_Direct3D11",
+	"Win32_System_Threading",
+] }
+windows-core = "0.58"
+
+[build-dependencies]
+windows-bindgen = "0.62.1"
+
+
+[package.metadata.winrt]
+# Placeholder for IDL build; actual toolchain can be MSBuild or windows build macro.
