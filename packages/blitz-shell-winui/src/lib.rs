@@ -131,6 +131,7 @@ use windows::core::implement;
 use windows_core::{IInspectable, HSTRING, Interface};
 use windows_core::IUnknownImpl;
 use crate::bindings::{IHost, IHostFactory, IHost_Impl, IHostFactory_Impl};
+// Note: We expose a custom factory (IHostFactory) via DllGetActivationFactory.
 
 #[implement(IHost, IHostFactory)]
 pub struct HostRuntime {
@@ -210,11 +211,60 @@ impl IHostFactory_Impl for HostRuntime_Impl {
     }
 }
 
-// Exported activation entrypoint (stub for now; proper activation wiring to follow)
-#[unsafe(no_mangle)]
-pub extern "system" fn DllGetActivationFactory(_name: HSTRING, _factory: *mut *mut c_void) -> windows_core::HRESULT {
-    // CLASS_E_CLASSNOTAVAILABLE
-    windows_core::HRESULT(0x80040154u32 as i32)
+// --- WinRT Activation Factory ---
+// Provide a factory object that implements IHostFactory; the runtime will QI for this interface.
+#[implement(IHostFactory)]
+pub struct HostActivationFactory;
+
+#[allow(non_snake_case)]
+impl IHostFactory_Impl for HostActivationFactory_Impl {
+    fn CreateInstance(
+        &self,
+        panel: windows_core::Ref<'_, IInspectable>,
+        width: u32,
+        height: u32,
+        scale: f32,
+    ) -> windows_core::Result<bindings::Host> {
+        let runtime = HostRuntime::new();
+        let shell = winrt_component::BlitzHost::new_for_swapchain(
+            raw_handle::SwapChainPanelHandle { swapchain: 0 },
+            width,
+            height,
+            scale,
+        )
+        .map_err(|_| windows_core::Error::new(windows_core::HRESULT(0x80004005u32 as i32), "Host creation failed"))?;
+        *runtime.inner.lock().unwrap() = Some(Box::new(shell));
+        let insp: IInspectable = runtime.into();
+        let host: bindings::Host = Interface::cast(&insp)?;
+        host.SetPanel(panel.as_ref())?;
+        Ok(host)
+    }
 }
 
-// WinRT activation/export will be wired up after SwapChainPanel interop is implemented.
+// Exported activation entrypoint returning our activation factory for Blitz.WinUI.Host
+#[unsafe(no_mangle)]
+pub extern "system" fn DllGetActivationFactory(name: HSTRING, factory: *mut *mut c_void) -> windows_core::HRESULT {
+    // E_INVALIDARG if no out parameter
+    if factory.is_null() {
+        return windows_core::HRESULT(0x80070057u32 as i32);
+    }
+    unsafe { *factory = core::ptr::null_mut(); }
+
+    // Match the runtime class name defined in idl/Blitz.WinUI.idl
+    let class_name = name.to_string();
+    if class_name == "Blitz.WinUI.Host" {
+        // Create factory object and hand out IHostFactory
+        let fac = HostActivationFactory;
+        let insp: IInspectable = fac.into();
+        match Interface::cast::<IHostFactory>(&insp) {
+            Ok(host_factory) => {
+                unsafe { *factory = host_factory.into_raw(); }
+                windows_core::HRESULT(0) // S_OK
+            }
+            Err(err) => err.code(),
+        }
+    } else {
+        // CLASS_E_CLASSNOTAVAILABLE
+        windows_core::HRESULT(0x80040154u32 as i32)
+    }
+}
