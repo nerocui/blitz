@@ -20,7 +20,9 @@ A WinUI/WinAppSDK shell to host Blitz rendering inside a Microsoft.UI.Xaml.Contr
   - Explicit `impl IHost_Impl for HostRuntime_Impl` and `impl IHostFactory_Impl for HostRuntime_Impl`, forwarding to the inner `HostRuntime` using `get_impl()`.
   - Methods: `SetPanel(Object)`, `Resize(u32,u32,f32)`, `RenderOnce()`, `LoadHtml(HSTRING)`, `CreateInstance(Object,u32,u32,f32)`.
 - Input bridging from C# (mouse, wheel, keyboard) into Blitz DOM events.
-- DllGetActivationFactory: exported as a stub returning `CLASS_E_CLASSNOTAVAILABLE` (activation wiring pending).
+- WinRT activation wired: `DllGetActivationFactory` returns an activation factory for `Blitz.WinUI.Host`.
+  - `HostActivationFactory` implements `IActivationFactory` + `IHostFactory`.
+  - `ActivateInstance` returns a `HostRuntime` (panel can be set later) and `CreateInstance` wires up a `BlitzHost` and calls `SetPanel`.
 
 ## Constraints & Guidelines
 - SwapChainPanel is the embedding surface. Do not require a top-level HWND from C#.
@@ -35,7 +37,6 @@ A WinUI/WinAppSDK shell to host Blitz rendering inside a Microsoft.UI.Xaml.Contr
 
 ## Current Gaps
 - SwapChainPanel native interop (ISwapChainPanelNative) not wired yet; `SetPanel` forwards a raw IInspectable for now.
-- Real activation factory not implemented; DllGetActivationFactory is a temporary stub.
 - No sample WinUI3 C# app in-repo yet.
 
 ## Next Steps
