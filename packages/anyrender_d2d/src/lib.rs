@@ -44,7 +44,8 @@ enum Command {
     FillPath { path: Vec<PathEl>, brush: RecordedBrush },
     StrokePath { path: Vec<PathEl>, brush: RecordedBrush, width: f64 },
     BoxShadow { rect: Rect, color: Color },
-    GlyphRun { text: String, size: f32, color: Color },
+    // Store raw glyph indices + origin; avoids misinterpreting glyph ids as Unicode codepoints.
+    GlyphRun { glyph_indices: Vec<u16>, origin: (f32,f32), size: f32, color: Color },
 }
 
 #[derive(Clone)]
@@ -110,12 +111,15 @@ impl<'a> PaintScene for D2DScenePainter<'a> {
         }
     }
     fn draw_glyphs<'b, 's: 'b>(&'s mut self, _font: &'b Font, font_size: f32, _hint: bool, _norm: &'b [NormalizedCoord], _style: impl Into<StyleRef<'b>>, brush: impl Into<BrushRef<'b>>, brush_alpha: f32, _transform: Affine, _glyph_transform: Option<Affine>, glyphs: impl Iterator<Item = Glyph>) {
-        // For now, convert glyphs into a simple string by char code if id <= 0x10FFFF.
-        // Proper glyph run shaping requires DirectWrite font face creation.
-        let mut s = String::new();
-        for g in glyphs { if let Some(ch) = char::from_u32(g.id) { s.push(ch); } }
-        let color = match brush.into() { BrushRef::Solid(c) => c.with_alpha(c.components[3] * brush_alpha), _ => Color::BLACK }; // only solid
-        self.scene.commands.push(Command::GlyphRun { text: s, size: font_size, color });
+        let mut glyph_indices = Vec::new();
+        let mut origin: Option<(f32,f32)> = None;
+        for g in glyphs {
+            if origin.is_none() { origin = Some((g.x as f32, g.y as f32)); }
+            glyph_indices.push(g.id as u16);
+        }
+        let color = match brush.into() { BrushRef::Solid(c) => c.with_alpha(c.components[3] * brush_alpha), _ => Color::BLACK };
+        let origin = origin.unwrap_or((0.0,0.0));
+        self.scene.commands.push(Command::GlyphRun { glyph_indices, origin, size: font_size, color });
     }
     fn draw_box_shadow(&mut self, _transform: Affine, rect: Rect, brush: Color, _radius: f64, _std_dev: f64) {
         self.scene.commands.push(Command::BoxShadow { rect, color: brush });
@@ -153,10 +157,10 @@ pub struct D2DWindowRenderer {
     d2d_device: Option<ID2D1Device>,
     d2d_ctx: Option<ID2D1DeviceContext>,
     dwrite_factory: Option<IDWriteFactory>,
+    dwrite_font_face: Option<IDWriteFontFace>,
     // caches
     gradient_cache: FxHashMap<u64, ID2D1Brush>,
     image_cache: FxHashMap<u64, ID2D1Bitmap>,
-    text_format_cache: FxHashMap<u32, IDWriteTextFormat>,
     scene: D2DScene,
     width: u32,
     height: u32,
@@ -164,7 +168,7 @@ pub struct D2DWindowRenderer {
 }
 
 impl D2DWindowRenderer {
-    pub fn new() -> Self { Self { swapchain: None, d3d_device: None, d2d_factory: None, d2d_device: None, d2d_ctx: None, dwrite_factory: None, gradient_cache: FxHashMap::default(), image_cache: FxHashMap::default(), text_format_cache: FxHashMap::default(), scene: D2DScene::default(), width: 1, height: 1, active: false } }
+    pub fn new() -> Self { Self { swapchain: None, d3d_device: None, d2d_factory: None, d2d_device: None, d2d_ctx: None, dwrite_factory: None, dwrite_font_face: None, gradient_cache: FxHashMap::default(), image_cache: FxHashMap::default(), scene: D2DScene::default(), width: 1, height: 1, active: false } }
 
     pub fn set_swapchain(&mut self, sc: IDXGISwapChain1, width: u32, height: u32) {
         self.width = width.max(1);
@@ -193,7 +197,22 @@ impl D2DWindowRenderer {
                                         self.d2d_ctx = Some(ctx);
                                         // DirectWrite factory
                                         if let Ok(dwf) = DWriteCreateFactory::<IDWriteFactory>(DWRITE_FACTORY_TYPE_SHARED) {
-                                            self.dwrite_factory = Some(dwf);
+                                            self.dwrite_factory = Some(dwf.clone());
+                                            // Create a default font face (Segoe UI) for glyph runs.
+                                            let mut collection: Option<IDWriteFontCollection> = None;
+                                            if dwf.GetSystemFontCollection(&mut collection, false).is_ok() {
+                                                if let Some(collection) = collection {
+                                                    let mut idx = 0u32;
+                                                    let mut exists = false.into();
+                                                    if collection.FindFamilyName(windows::core::w!("Segoe UI"), &mut idx, &mut exists).is_ok() && exists.as_bool() {
+                                                        if let Ok(family) = collection.GetFontFamily(idx) {
+                                                            if let Ok(font) = family.GetFirstMatchingFont(DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL) {
+                                                                if let Ok(face) = font.CreateFontFace() { self.dwrite_font_face = Some(face); }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -260,13 +279,26 @@ impl D2DWindowRenderer {
                         let r = D2D_RECT_F { left: (rect.x0 - 4.0) as f32, top: (rect.y0 - 4.0) as f32, right: (rect.x1 + 4.0) as f32, bottom: (rect.y1 + 4.0) as f32 };
                         let _ = ctx.FillRectangle(&r, &brush);
                     }
-                    Command::GlyphRun { text, size, color } => {
-                        if let Some(dwf) = self.dwrite_factory.clone() {
-                            let wide: Vec<u16> = text.encode_utf16().collect();
-                            let text_format = self.get_or_create_text_format(size);
-                            if let Ok(layout) = dwf.CreateTextLayout(&wide, text_format, f32::MAX, f32::MAX) {
+                    Command::GlyphRun { glyph_indices, origin, size, color } => {
+                        if let Some(face) = &self.dwrite_font_face {
+                            if !glyph_indices.is_empty() {
                                 let brush = self.create_solid_brush(color);
-                                let _ = ctx.DrawTextLayout(D2D_POINT_2F { x: 0.0, y: 0.0 }, &layout, &brush, D2D1_DRAW_TEXT_OPTIONS_NONE);
+                                // Provide nominal advances so glyphs don't overprint; use 0.6 em per glyph as rough fallback.
+                                let nominal = (size * 0.6).max(1.0);
+                                let advances_vec: Vec<f32> = std::iter::repeat(nominal).take(glyph_indices.len()).collect();
+                                let run = DWRITE_GLYPH_RUN {
+                                    fontFace: std::mem::ManuallyDrop::new(Some(face.clone())),
+                                    fontEmSize: size,
+                                    glyphCount: glyph_indices.len() as u32,
+                                    glyphIndices: glyph_indices.as_ptr(),
+                                    glyphAdvances: advances_vec.as_ptr(),
+                                    glyphOffsets: std::ptr::null(),
+                                    isSideways: false.into(),
+                                    bidiLevel: 0,
+                                };
+                                let origin_pt = D2D_POINT_2F { x: origin.0, y: origin.1 };
+                                // ID2D1DeviceContext::DrawGlyphRun expects (point, *run, description, brush, measuring_mode)
+                                let _ = ctx.DrawGlyphRun(origin_pt, &run, None, &brush, DWRITE_MEASURING_MODE_NATURAL);
                             }
                         }
                     }
@@ -357,18 +389,7 @@ impl D2DWindowRenderer {
         }
     }
 
-    fn get_or_create_text_format(&mut self, size: f32) -> &IDWriteTextFormat {
-        let key = size.to_bits();
-        if !self.text_format_cache.contains_key(&key) {
-            if let Some(factory) = &self.dwrite_factory { unsafe {
-                if let Ok(f) = factory.CreateTextFormat(windows::core::w!("Arial"), None, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, windows::core::w!("en-US")) {
-                    self.text_format_cache.insert(key, f);
-                }
-            }}
-        }
-        // unwrap safe: either inserted or already present
-        self.text_format_cache.get(&key).unwrap()
-    }
+    // Removed legacy text_format_cache based path; glyph runs now used directly.
 
     fn build_path_geometry(&self, path: &[PathEl]) -> Option<ID2D1PathGeometry> {
         let factory = self.d2d_factory.as_ref()?;
