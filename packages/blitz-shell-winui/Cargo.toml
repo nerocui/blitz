@@ -17,14 +17,12 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 anyrender = { workspace = true }
-anyrender_vello = { workspace = true }
+anyrender_d2d = { workspace = true }
 blitz-dom = { workspace = true, features = ["default"] }
 blitz-html = { workspace = true }
 blitz-paint = { workspace = true }
 blitz-traits = { workspace = true }
 raw-window-handle = { workspace = true }
-wgpu = { workspace = true }
-vello = { workspace = true }
 keyboard-types = { workspace = true }
 windows = { version = "0.58", features = [
 	"Foundation",

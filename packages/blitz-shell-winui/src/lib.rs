@@ -8,15 +8,17 @@
 //!
 //! Status: initial scaffold. Surface creation and event wiring are stubs that need real handles.
 
-mod raw_handle;
 mod winrt_component;
 mod bindings;
 
-pub use raw_handle::{DxgiInteropHandle, SwapChainPanelHandle};
+#[derive(Clone, Copy)]
+pub struct SwapChainPanelHandle {
+    pub swapchain: isize,
+}
 use crate::bindings::ISwapChainAttacher;
 
-/// Re-export the default Vello window renderer to keep parity with other shells
-pub use anyrender_vello::VelloWindowRenderer as WindowRenderer;
+/// Use Direct2D window renderer implementation
+pub use anyrender_d2d::D2DWindowRenderer as WindowRenderer;
 
 /// High-level entry point: initialize the Blitz view for a host-provided surface.
 ///
@@ -34,16 +36,7 @@ pub fn initialize_for_swapchain_panel(
 }
 
 // --- Optional C ABI for early interop testing (P/Invoke) ---
-#[unsafe(no_mangle)]
-pub extern "C" fn blitz_winui_create(hwnd: isize, width: u32, height: u32, scale: f32) -> *mut winrt_component::BlitzHost {
-    let panel = SwapChainPanelHandle { swapchain: 0 };
-    let mut host = winrt_component::BlitzHost::new_for_swapchain(panel, width, height, scale)
-        .unwrap_or_else(|_| panic!("failed to create BlitzHost"));
-    if hwnd != 0 {
-        host.set_hwnd(hwnd, width, height);
-    }
-    Box::into_raw(Box::new(host))
-}
+// Removed HWND-based C ABI: WinUI shell does not use raw window handles. Only WinRT activation is supported.
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn blitz_winui_resize(ptr: *mut winrt_component::BlitzHost, width: u32, height: u32, scale: f32) {
@@ -59,12 +52,7 @@ pub unsafe extern "C" fn blitz_winui_render(ptr: *mut winrt_component::BlitzHost
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn blitz_winui_set_hwnd(ptr: *mut winrt_component::BlitzHost, hwnd: isize, width: u32, height: u32) {
-    if let Some(host) = unsafe { ptr.as_mut() } {
-        host.set_hwnd(hwnd, width, height);
-    }
-}
+// Removed HWND setter: not supported in WinUI shell
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn blitz_winui_load_html(ptr: *mut winrt_component::BlitzHost, bytes: *const u8, len: usize) {
@@ -223,7 +211,7 @@ impl IHostFactory_Impl for HostRuntime_Impl {
         
         // Fallback to old method if attacher casting failed
         let shell = winrt_component::BlitzHost::new_for_swapchain(
-            raw_handle::SwapChainPanelHandle { swapchain: 0 },
+            SwapChainPanelHandle { swapchain: 0 },
             width,
             height,
             scale,
@@ -268,7 +256,7 @@ impl IHostFactory_Impl for HostActivationFactory_Impl {
         
         // Fallback to old method if attacher casting failed
         let shell = winrt_component::BlitzHost::new_for_swapchain(
-            raw_handle::SwapChainPanelHandle { swapchain: 0 },
+            SwapChainPanelHandle { swapchain: 0 },
             width,
             height,
             scale,

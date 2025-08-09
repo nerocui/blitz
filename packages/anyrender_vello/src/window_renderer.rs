@@ -70,6 +70,7 @@ impl VelloWindowRenderer {
         }
     }
 
+
     pub fn current_device_handle(&self) -> Option<&DeviceHandle> {
         self.render_state.current_device_handle()
     }

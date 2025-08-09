@@ -2,6 +2,7 @@
 members = [
   "packages/anyrender",
   "packages/anyrender_vello",
+   "packages/anyrender_d2d",
   "packages/anyrender_vello_cpu",
   "packages/anyrender_svg",
   "packages/debug_timer",
@@ -41,6 +42,7 @@ anyrender = { version = "0.5.0", path = "./packages/anyrender" }
 anyrender_vello = { version = "0.5.1", path = "./packages/anyrender_vello" }
 anyrender_vello_cpu = { version = "0.5.2", path = "./packages/anyrender_vello_cpu" }
 anyrender_svg = { version = "0.5.0", path = "./packages/anyrender_svg" }
+anyrender_d2d = { version = "0.5.0", path = "./packages/anyrender_d2d" }
 debug_timer = { version = "0.1.0", path = "./packages/debug_timer" }
 
 # Blitz dependencies(in-repo)

@@ -1,15 +1,13 @@
 use std::sync::Arc;
 
 use anyrender::WindowRenderer as _;
-use anyrender_vello::VelloWindowRenderer;
+use anyrender_d2d::D2DWindowRenderer;
 use blitz_dom::{Document, DocumentConfig};
 use blitz_html::HtmlDocument;
 use blitz_paint::paint_scene;
 use blitz_traits::shell::{ColorScheme, Viewport};
 
-use crate::raw_handle::DxgiInteropHandle;
 use crate::bindings::ISwapChainAttacher;
-use windows::Win32::Foundation::HWND;
 use windows::core::{IInspectable, Interface};
 use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11RenderTargetView, ID3D11Texture2D,
@@ -33,9 +31,10 @@ use windows::Win32::Graphics::Dxgi::Common::{
 /// Public host object backing the WinRT class. Keeps the document and renderer alive and exposes
 /// methods called from C# to drive rendering and input.
 pub struct BlitzHost {
-    renderer: VelloWindowRenderer,
-    window: Arc<dyn anyrender::WindowHandle>,
+    renderer: D2DWindowRenderer,
     doc: Box<dyn Document>,
+    // Staging buffer for temporary CPU uploads (to bridge wgpu texture to D3D11 backbuffer)
+    cpu_staging: Vec<u8>,
     // SwapChainPanel interop (temporary D3D11 path until wgpu surface is implemented)
     d3d_device: Option<ID3D11Device>,
     d3d_context: Option<ID3D11DeviceContext>,
@@ -46,10 +45,7 @@ pub struct BlitzHost {
 impl BlitzHost {
     pub fn new_for_swapchain(_panel: crate::SwapChainPanelHandle, width: u32, height: u32, scale: f32) -> Result<Self, String> {
         let _ = scale;
-        // TODO: use panel.swapchain to get HWND or a surface target. For now, assume we can extract HWND somehow.
-        // Placeholder: require caller to call SetHwnd before rendering.
-        let hwnd: Option<HWND> = None;
-        let window: Arc<dyn anyrender::WindowHandle> = Arc::new(DxgiInteropHandle::from(HWND(core::ptr::null_mut())));
+        // No HWND usage in WinUI path. We strictly render into the provided SwapChainPanel swapchain.
 
         // Minimal HTML doc placeholder; host can replace by calling load_html.
         let doc = HtmlDocument::from_html(
@@ -57,13 +53,8 @@ impl BlitzHost {
             DocumentConfig::default(),
         );
 
-        let mut renderer = VelloWindowRenderer::new();
-        if let Some(hwnd) = hwnd {
-            let win = Arc::new(DxgiInteropHandle::from(hwnd)) as Arc<dyn anyrender::WindowHandle>;
-            renderer.resume(win, width, height);
-        }
-
-        Ok(Self { renderer, window, doc: Box::new(doc), d3d_device: None, d3d_context: None, swapchain: None, attacher: None })
+    let mut renderer = D2DWindowRenderer::new();
+    Ok(Self { renderer, doc: Box::new(doc), cpu_staging: Vec::new(), d3d_device: None, d3d_context: None, swapchain: None, attacher: None })
     }
     
     // New method that takes an attacher directly
@@ -77,17 +68,6 @@ impl BlitzHost {
     // Method to get a reference to the attacher
     pub fn get_attacher(&self) -> Option<ISwapChainAttacher> {
         self.attacher.clone()
-    }
-
-    pub fn set_hwnd(&mut self, hwnd: isize, width: u32, height: u32) {
-        // Create or re-create the wgpu surface against the new HWND
-        let win = Arc::new(DxgiInteropHandle::from(hwnd)) as Arc<dyn anyrender::WindowHandle>;
-        if self.renderer.is_active() {
-            // suspend and resume on new window to recreate surface
-            self.renderer.suspend();
-        }
-        self.renderer.resume(win.clone(), width, height);
-        self.window = win;
     }
 
     // SwapChainPanel interop: detect if the provided Object is an attacher callback; if so, store it and, if possible, create and attach swapchain now.
@@ -228,11 +208,20 @@ impl BlitzHost {
             self.d3d_context = Some(context);
             self.swapchain = Some(sc);
             println!("create_and_attach_swapchain: Successfully stored device, context, and swapchain");
+            if let Some(sc_ref) = &self.swapchain { self.renderer.set_swapchain(sc_ref.clone(), width, height); }
+            
+            // Ensure our renderer matches the current size
+            self.renderer.set_size(width, height);
             
             // Test the rendering path immediately
             println!("create_and_attach_swapchain: Testing immediate render path");
             self.render_once();
         }
+    }
+
+    fn ensure_staging_capacity(&mut self, width: u32, height: u32) {
+        let need = (width.max(1) * height.max(1) * 4) as usize;
+        if self.cpu_staging.len() < need { self.cpu_staging.resize(need, 0); }
     }
 
     // Alternative interop: host passes an already-created IDXGISwapChain1* pointer.
@@ -258,8 +247,9 @@ impl BlitzHost {
 
     pub fn resize(&mut self, width: u32, height: u32, scale: f32) {
     let viewport = Viewport::new(width, height, scale, ColorScheme::Light);
-        self.doc.set_viewport(viewport);
-        self.renderer.set_size(width, height);
+    self.doc.set_viewport(viewport);
+    // Keep renderer sized to viewport; no window-handle surface used here
+    self.renderer.set_size(width.max(1), height.max(1));
         // Resize DXGI swapchain if present
         if let Some(sc) = &self.swapchain {
             let _ = unsafe { sc.ResizeBuffers(0, width, height, DXGI_FORMAT(28), windows::Win32::Graphics::Dxgi::DXGI_SWAP_CHAIN_FLAG(0)) };
@@ -271,7 +261,9 @@ impl BlitzHost {
         let (width, height) = self.doc.viewport().window_size;
         let scale = self.doc.viewport().scale_f64();
         self.doc.resolve();
-        // If we have a panel-backed swapchain, clear and present it (temporary path)
+        
+    // If we have a panel-backed swapchain, render via Vello (GPU) into an intermediate texture,
+    // then upload/copy into the D3D11 backbuffer.
         if let Some(sc) = &self.swapchain {
             println!("render_once: Found swapchain, attempting to render");
             unsafe {
@@ -305,32 +297,15 @@ impl BlitzHost {
                         }
                         
                         let ctx = self.d3d_context.as_ref().unwrap();
-                        println!("render_once: Got D3D context, creating render target view");
-                        
-                        // Create RTV
-                        let mut rtv_desc = D3D11_RENDER_TARGET_VIEW_DESC::default();
-                        rtv_desc.Format = DXGI_FORMAT(28); // DXGI_FORMAT_R8G8B8A8_UNORM
-                        rtv_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-                        rtv_desc.Anonymous.Texture2D = D3D11_TEX2D_RTV { MipSlice: 0 };
-                        
-                        if let Some(dev) = &self.d3d_device {
-                            let mut rtv: Option<ID3D11RenderTargetView> = None;
-                            match dev.CreateRenderTargetView(&tex, Some(&rtv_desc), Some(&mut rtv)) {
-                                Ok(_) => {
-                                    if let Some(rtv) = &rtv {
-                                        println!("render_once: Created RTV, clearing to blue color");
-                                        // Use a distinct blue color to clearly see if rendering works
-                                        let color = [0.1f32, 0.2f32, 0.8f32, 1.0f32];
-                                        ctx.ClearRenderTargetView(rtv, &color);
-                                    } else {
-                                        println!("render_once: RTV is None even though creation succeeded");
-                                    }
-                                },
-                                Err(e) => println!("render_once: Failed to create RTV: {:?}", e),
-                            }
-                        } else {
-                            println!("render_once: No D3D device available");
+                        let (w, h) = (width.max(1), height.max(1));
+
+                        // Render HTML scene with Vello to its intermediate GPU texture
+                        // Set swapchain into D2D renderer (only once)
+                        if self.d3d_device.is_some() && self.swapchain.is_some() {
+                            // Already set
                         }
+                        // Render via D2D backend directly into the backbuffer
+                        self.renderer.render(|scene| paint_scene(scene, &self.doc, scale, w, h));
                     },
                     Err(e) => println!("render_once: Failed to get back buffer: {:?}", e),
                 }

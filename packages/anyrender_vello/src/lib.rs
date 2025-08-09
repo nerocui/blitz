@@ -1,5 +1,6 @@
 //! A [`vello`] backend for the [`anyrender`] 2D drawing abstraction
 mod image_renderer;
+mod swapchain_renderer;
 mod scene;
 mod window_renderer;
 
@@ -8,6 +9,7 @@ pub mod wgpu_context;
 
 pub use custom_paint_source::*;
 pub use image_renderer::VelloImageRenderer;
+pub use swapchain_renderer::VelloSwapchainRenderer;
 pub use scene::VelloScenePainter;
 pub use window_renderer::VelloWindowRenderer;
 

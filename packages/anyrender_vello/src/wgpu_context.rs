@@ -116,6 +116,25 @@ impl WGPUContext {
         RenderSurface::new(surface, device_handle, dev_id, width, height, present_mode).await
     }
 
+    /// Creates a render surface using an already-created wgpu Surface.
+    /// The surface must be compatible with this context's Instance (i.e., created from it).
+    pub async fn create_surface_from_wgpu_surface<'w>(
+        &mut self,
+        surface: Surface<'w>,
+        width: u32,
+        height: u32,
+        present_mode: wgpu::PresentMode,
+    ) -> Result<RenderSurface<'w>, WgpuContextError> {
+        // Find or create a suitable device for rendering to the surface
+        let dev_id = self
+            .find_or_create_device(Some(&surface))
+            .await
+            .ok_or(WgpuContextError::NoCompatibleDevice)?;
+        let device_handle = self.device_pool[dev_id].clone();
+
+        RenderSurface::new(surface, device_handle, dev_id, width, height, present_mode).await
+    }
+
     /// Finds or creates a compatible device handle id.
     pub async fn find_or_create_device(
         &mut self,
