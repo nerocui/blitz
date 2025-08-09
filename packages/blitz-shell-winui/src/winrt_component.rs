@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use anyrender::WindowRenderer as _;
 use anyrender_d2d::D2DWindowRenderer;
 use blitz_dom::{Document, DocumentConfig};
@@ -10,9 +8,8 @@ use blitz_traits::shell::{ColorScheme, Viewport};
 use crate::bindings::ISwapChainAttacher;
 use windows::core::{IInspectable, Interface};
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11RenderTargetView, ID3D11Texture2D,
-    ID3D11Resource, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_RENDER_TARGET_VIEW_DESC,
-    D3D11_RTV_DIMENSION_TEXTURE2D, D3D11_TEX2D_RTV,
+    D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
+    ID3D11Resource, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
 };
 use windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1,
@@ -34,7 +31,8 @@ pub struct BlitzHost {
     renderer: D2DWindowRenderer,
     doc: Box<dyn Document>,
     // Staging buffer for temporary CPU uploads (to bridge wgpu texture to D3D11 backbuffer)
-    cpu_staging: Vec<u8>,
+    // TODO: Enable when implementing CPU-GPU texture bridge
+    // cpu_staging: Vec<u8>,
     // SwapChainPanel interop (temporary D3D11 path until wgpu surface is implemented)
     d3d_device: Option<ID3D11Device>,
     d3d_context: Option<ID3D11DeviceContext>,
@@ -43,7 +41,7 @@ pub struct BlitzHost {
 }
 
 impl BlitzHost {
-    pub fn new_for_swapchain(_panel: crate::SwapChainPanelHandle, width: u32, height: u32, scale: f32) -> Result<Self, String> {
+    pub fn new_for_swapchain(_panel: crate::SwapChainPanelHandle, _width: u32, _height: u32, scale: f32) -> Result<Self, String> {
         let _ = scale;
         // No HWND usage in WinUI path. We strictly render into the provided SwapChainPanel swapchain.
 
@@ -53,8 +51,16 @@ impl BlitzHost {
             DocumentConfig::default(),
         );
 
-    let mut renderer = D2DWindowRenderer::new();
-    Ok(Self { renderer, doc: Box::new(doc), cpu_staging: Vec::new(), d3d_device: None, d3d_context: None, swapchain: None, attacher: None })
+        let renderer = D2DWindowRenderer::new();
+        Ok(Self { 
+            renderer, 
+            doc: Box::new(doc), 
+            // cpu_staging: Vec::new(), // TODO: Enable when implementing CPU-GPU texture bridge
+            d3d_device: None, 
+            d3d_context: None, 
+            swapchain: None, 
+            attacher: None 
+        })
     }
     
     // New method that takes an attacher directly
@@ -219,10 +225,11 @@ impl BlitzHost {
         }
     }
 
-    fn ensure_staging_capacity(&mut self, width: u32, height: u32) {
-        let need = (width.max(1) * height.max(1) * 4) as usize;
-        if self.cpu_staging.len() < need { self.cpu_staging.resize(need, 0); }
-    }
+    // TODO: Enable when implementing CPU-GPU texture bridge
+    // fn ensure_staging_capacity(&mut self, width: u32, height: u32) {
+    //     let need = (width.max(1) * height.max(1) * 4) as usize;
+    //     if self.cpu_staging.len() < need { self.cpu_staging.resize(need, 0); }
+    // }
 
     // Alternative interop: host passes an already-created IDXGISwapChain1* pointer.
     // Safety: swapchain_ptr must be a valid, AddRef'd IDXGISwapChain1 pointer. We take ownership of a reference.
@@ -296,7 +303,7 @@ impl BlitzHost {
                             return; // can't render without a context
                         }
                         
-                        let ctx = self.d3d_context.as_ref().unwrap();
+                        let _ctx = self.d3d_context.as_ref().unwrap();
                         let (w, h) = (width.max(1), height.max(1));
 
                         // Render HTML scene with Vello to its intermediate GPU texture

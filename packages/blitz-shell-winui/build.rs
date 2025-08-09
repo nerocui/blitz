@@ -1,4 +1,4 @@
-use std::{env, process::Command, io::{self, Write}};
+use std::{env, process::Command};
 
 fn main() {
     println!("cargo:rerun-if-changed=idl/BlitzWinUI.idl");
@@ -9,7 +9,7 @@ fn main() {
     std::fs::create_dir_all("Generated Files").unwrap();
 
     // Build the midlrt command we want to run inside the VS DevShell
-    let mut midl_args: Vec<String> = vec![
+    let midl_args: Vec<String> = vec![
         "/winrt".into(),
         "/nomidl".into(),
         "/h".into(), "nul".into(),

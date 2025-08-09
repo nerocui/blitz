@@ -18,31 +18,33 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        
-        <!-- SwapChainPanel for Blitz rendering -->
+
+        <!--  SwapChainPanel for Blitz rendering  -->
         <SwapChainPanel
             x:Name="BlitzPanel"
             Grid.Row="0"
+            Width="500"
+            Height="500"
             HorizontalAlignment="Stretch"
             VerticalAlignment="Stretch"
             Loaded="BlitzPanel_Loaded"
             SizeChanged="BlitzPanel_SizeChanged" />
-            
-        <!-- Logging panel at the bottom -->
-        <ScrollViewer 
+
+        <!--  Logging panel at the bottom  -->
+        <ScrollViewer
             x:Name="LogScrollViewer"
-            Grid.Row="1" 
-            Height="150" 
-            Margin="10" 
-            BorderBrush="{ThemeResource SystemControlForegroundBaseMediumLowBrush}" 
+            Grid.Row="1"
+            Height="150"
+            Margin="10"
+            BorderBrush="{ThemeResource SystemControlForegroundBaseMediumLowBrush}"
             BorderThickness="1">
-            <TextBox 
-                x:Name="LogTextBox" 
-                IsReadOnly="True" 
-                AcceptsReturn="True" 
-                TextWrapping="Wrap" 
-                FontFamily="Consolas" 
-                FontSize="12" />
+            <TextBox
+                x:Name="LogTextBox"
+                AcceptsReturn="True"
+                FontFamily="Consolas"
+                FontSize="12"
+                IsReadOnly="True"
+                TextWrapping="Wrap" />
         </ScrollViewer>
     </Grid>
 </Window>
