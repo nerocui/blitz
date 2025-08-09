@@ -240,12 +240,16 @@ impl IHostFactory_Impl for HostActivationFactory_Impl {
         scale: f32,
     ) -> windows_core::Result<bindings::Host> {
         let runtime = HostRuntime::new();
+        crate::winrt_component::debug_log(&format!("HostActivationFactory::CreateInstance: entered ({}x{}, scale {})", width, height, scale));
         
         // Try to cast to ISwapChainAttacher
         if let Some(insp) = attacher.as_ref() {
+            crate::winrt_component::debug_log(&format!("HostActivationFactory::CreateInstance: inspecting attacher object {:?}", insp));
             if let Ok(att) = insp.cast::<ISwapChainAttacher>() {
                 // Create host with attacher directly
+                crate::winrt_component::debug_log("HostActivationFactory::CreateInstance: cast to ISwapChainAttacher succeeded");
                 if let Ok(shell) = winrt_component::BlitzHost::new_with_attacher(att, width, height, scale) {
+                    crate::winrt_component::debug_log("HostActivationFactory::CreateInstance: new_with_attacher succeeded");
                     *runtime.inner.lock().unwrap() = Some(Box::new(shell));
                     let insp: IInspectable = runtime.into();
                     let host: bindings::Host = Interface::cast(&insp)?;
@@ -255,6 +259,7 @@ impl IHostFactory_Impl for HostActivationFactory_Impl {
         }
         
         // Fallback to old method if attacher casting failed
+        crate::winrt_component::debug_log("HostActivationFactory::CreateInstance: falling back to new_for_swapchain + SetPanel path");
         let shell = winrt_component::BlitzHost::new_for_swapchain(
             SwapChainPanelHandle { swapchain: 0 },
             width,

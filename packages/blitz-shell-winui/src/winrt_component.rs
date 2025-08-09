@@ -9,7 +9,7 @@ use crate::bindings::ISwapChainAttacher;
 use windows::core::{IInspectable, Interface};
 use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
-    ID3D11Resource, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+    ID3D11Resource, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_DEBUG, D3D11_SDK_VERSION,
 };
 use windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1,
@@ -20,8 +20,18 @@ use windows::Win32::Graphics::Dxgi::{
     DXGI_SCALING_STRETCH, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_FORMAT, DXGI_SAMPLE_DESC, DXGI_ALPHA_MODE,
+    DXGI_FORMAT, DXGI_SAMPLE_DESC,
 };
+use windows::Win32::System::Diagnostics::Debug::OutputDebugStringA;
+use windows::core::PCSTR;
+
+pub(crate) fn debug_log(msg: &str) {
+    // Append newline for readability in DebugView.
+    let mut bytes = msg.as_bytes().to_vec();
+    if !bytes.ends_with(b"\n") { bytes.push(b'\n'); }
+    bytes.push(0); // null terminator
+    unsafe { OutputDebugStringA(PCSTR(bytes.as_ptr())); }
+}
 
 // Use generated ISwapChainAttacher from bindings.rs
 
@@ -41,15 +51,18 @@ pub struct BlitzHost {
 }
 
 impl BlitzHost {
-    pub fn new_for_swapchain(_panel: crate::SwapChainPanelHandle, _width: u32, _height: u32, scale: f32) -> Result<Self, String> {
-        let _ = scale;
+    pub fn new_for_swapchain(_panel: crate::SwapChainPanelHandle, width: u32, height: u32, scale: f32) -> Result<Self, String> {
         // No HWND usage in WinUI path. We strictly render into the provided SwapChainPanel swapchain.
 
         // Minimal HTML doc placeholder; host can replace by calling load_html.
-        let doc = HtmlDocument::from_html(
+        let mut doc = HtmlDocument::from_html(
             "<html><body><h1>Blitz WinUI host</h1><p>Initialize succeeded.</p></body></html>",
             DocumentConfig::default(),
         );
+
+        // Initialize viewport so first swapchain uses real size instead of 1x1.
+        let viewport = Viewport::new(width.max(1), height.max(1), scale, ColorScheme::Light);
+        doc.set_viewport(viewport);
 
         let renderer = D2DWindowRenderer::new();
         Ok(Self { 
@@ -80,111 +93,192 @@ impl BlitzHost {
     pub fn set_panel(&mut self, panel: windows_core::Ref<'_, IInspectable>, _width: u32, _height: u32) {
         // Try casting to our attacher interface
         if let Some(insp) = panel.as_ref() {
-            println!("set_panel: received panel object: {:?}", insp);
+        debug_log(&format!("set_panel: received panel object: {:?}", insp));
             match insp.cast::<ISwapChainAttacher>() {
                 Ok(att) => {
-                    println!("set_panel: successfully cast to ISwapChainAttacher");
+            debug_log("set_panel: successfully cast to ISwapChainAttacher");
                     self.attacher = Some(att);
                     // Always create and attach the swapchain when we get an attacher
                     self.create_and_attach_swapchain();
                 }
                 Err(e) => {
-                    println!("set_panel: failed to cast to ISwapChainAttacher: {:?}", e);
+            debug_log(&format!("set_panel: failed to cast to ISwapChainAttacher: {:?}", e));
                 }
             }
         } else {
-            println!("set_panel: no panel object received");
+        debug_log("set_panel: no panel object received");
         }
     }
 
     fn create_and_attach_swapchain(&mut self) {
-        println!("create_and_attach_swapchain: entering");
+    debug_log("create_and_attach_swapchain: entering");
         // Need an attacher to complete the hookup
         let attacher = match &self.attacher { 
             Some(a) => {
-                println!("create_and_attach_swapchain: attacher found");
+                debug_log("create_and_attach_swapchain: attacher found");
                 a.clone()
             }, 
             None => {
-                println!("create_and_attach_swapchain: no attacher available");
+                debug_log("create_and_attach_swapchain: no attacher available");
                 return;
             } 
         };
         
         // First test the connection without a real pointer
-        println!("create_and_attach_swapchain: Testing attacher connection...");
+        debug_log("create_and_attach_swapchain: Testing attacher connection...");
         match attacher.TestAttacherConnection() {
-            Ok(true) => println!("create_and_attach_swapchain: TestAttacherConnection succeeded"),
-            Ok(false) => println!("create_and_attach_swapchain: TestAttacherConnection returned false"),
-            Err(e) => println!("create_and_attach_swapchain: TestAttacherConnection failed: {:?}", e),
+            Ok(true) => debug_log("create_and_attach_swapchain: TestAttacherConnection succeeded"),
+            Ok(false) => debug_log("create_and_attach_swapchain: TestAttacherConnection returned false"),
+            Err(e) => debug_log(&format!("create_and_attach_swapchain: TestAttacherConnection failed: {:?}", e)),
         }
         
         // Use current viewport size
         let (width, height) = self.doc.viewport().window_size;
         let width = width.max(1);
         let height = height.max(1);
-        println!("create_and_attach_swapchain: using size {}x{}", width, height);
+    debug_log(&format!("create_and_attach_swapchain: using size {}x{}", width, height));
         unsafe {
             // Create D3D11 device/context
             let feature_levels = [D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0];
             let mut device: Option<ID3D11Device> = None;
             let mut context: Option<ID3D11DeviceContext> = None;
             let mut chosen: D3D_FEATURE_LEVEL = D3D_FEATURE_LEVEL_11_0;
-            let hr = D3D11CreateDevice(
-                None,
-                D3D_DRIVER_TYPE_HARDWARE,
-                None,
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                Some(&feature_levels),
-                0,
-                Some(&mut device),
-                Some(&mut chosen),
-                Some(&mut context),
-            );
-            if hr.is_err() { 
-                println!("create_and_attach_swapchain: D3D11CreateDevice failed: {:?}", hr);
-                return; 
+            debug_log(&format!(
+                "create_and_attach_swapchain: Calling D3D11CreateDevice feature_level_count={} (debug build: {})",
+                feature_levels.len(),
+                cfg!(debug_assertions)
+            ));
+            // Try with debug layer in debug builds; fallback without if it fails (e.g. Graphics Tools not installed).
+            let mut flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+            #[cfg(debug_assertions)]
+            { flags |= D3D11_CREATE_DEVICE_DEBUG; }
+
+            let mut try_create = |flags| {
+                // windows-rs 0.58 signature:
+                // D3D11CreateDevice(padapter, drivertype, software, flags,
+                //   pfeaturelevels: Option<&[D3D_FEATURE_LEVEL]>, sdkversion: u32,
+                //   ppdevice: Option<*mut Option<ID3D11Device>>,
+                //   pfeaturelevel: Option<*mut D3D_FEATURE_LEVEL>,   <== NOTE: windows 0.58 expects Option here
+                //   ppimmediatecontext: Option<*mut Option<ID3D11DeviceContext>>)
+                // Differences vs native: slice + implicit count; Option wrappers for ALL out params including feature level.
+                // IMPORTANT: Do NOT remove the Some(...) wrappers around device, chosen feature level, or context.
+                // Previous mistakes removed Some(&mut chosen) causing E0308 (expected Option<*mut D3D_FEATURE_LEVEL>).
+                // NOTE: No nested `unsafe {}` here; we are already inside an outer unsafe block.
+                // Adding another unsafe block would trigger `unused_unsafe` warning.
+                D3D11CreateDevice(
+                    None,                              // adapter
+                    D3D_DRIVER_TYPE_HARDWARE,          // driver type
+                    None,                              // software module
+                    flags,                             // flags
+                    Some(&feature_levels),             // feature level candidates
+                    D3D11_SDK_VERSION,                 // sdk version constant
+                    Some(&mut device),                 // out: device (Option wrapper required)
+                    Some(&mut chosen),                 // out: chosen feature level (MUST stay wrapped in Some)
+                    Some(&mut context),                // out: immediate context (Option wrapper required)
+                )
+            };
+
+            let hr = try_create(flags);
+            if hr.is_err() {
+                debug_log(&format!("create_and_attach_swapchain: D3D11CreateDevice initial attempt failed (flags={:?}) hr={:?}", flags, hr));
+                #[cfg(debug_assertions)]
+                {
+                    if (flags & D3D11_CREATE_DEVICE_DEBUG) == D3D11_CREATE_DEVICE_DEBUG {
+                        let fallback_flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT; // drop debug
+                        debug_log("create_and_attach_swapchain: retrying D3D11CreateDevice without DEBUG layer");
+                        let hr2 = try_create(fallback_flags);
+                        if hr2.is_err() {
+                            debug_log(&format!("create_and_attach_swapchain: D3D11CreateDevice fallback failed hr={:?}", hr2));
+                            return;
+                        }
+                    } else {
+                        return;
+                    }
+                }
+                #[cfg(not(debug_assertions))]
+                { return; }
             }
             let device = device.unwrap();
             let context = context.unwrap();
-            println!("create_and_attach_swapchain: D3D11 device created successfully");
+            debug_log(&format!("create_and_attach_swapchain: D3D11 device created (feature level {:?})", chosen));
+            debug_log("create_and_attach_swapchain: D3D11 device created successfully");
 
             // Create swapchain for composition
             let factory: IDXGIFactory2 = match CreateDXGIFactory2::<IDXGIFactory2>(DXGI_CREATE_FACTORY_FLAGS(0)) {
                 Ok(f) => {
-                    println!("create_and_attach_swapchain: Created DXGI factory");
+                    debug_log("create_and_attach_swapchain: Created DXGI factory");
                     f
                 },
                 Err(e) => {
-                    println!("create_and_attach_swapchain: CreateDXGIFactory2 failed: {:?}", e);
+                    debug_log(&format!("create_and_attach_swapchain: CreateDXGIFactory2 failed: {:?}", e));
                     return;
                 },
             };
             
             // Create a more robust swap chain for SwapChainPanel
-            let desc = DXGI_SWAP_CHAIN_DESC1 {
+            // Primary descriptor (premultiplied alpha, flip-sequential)
+            let mut desc = DXGI_SWAP_CHAIN_DESC1 {
                 Width: width,
                 Height: height,
-                Format: DXGI_FORMAT(87), // DXGI_FORMAT_B8G8R8A8_UNORM
+                Format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM,
                 Stereo: false.into(),
                 SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
                 BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
                 BufferCount: 2,
                 Scaling: DXGI_SCALING_STRETCH,
                 SwapEffect: DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
-                AlphaMode: DXGI_ALPHA_MODE(2), // DXGI_ALPHA_MODE_PREMULTIPLIED (2)
+                AlphaMode: windows::Win32::Graphics::Dxgi::Common::DXGI_ALPHA_MODE_PREMULTIPLIED, // correct enum value for premultiplied
                 Flags: 0,
             };
-            println!("create_and_attach_swapchain: Creating swap chain with size {}x{}", width, height);
-            let sc: IDXGISwapChain1 = match factory.CreateSwapChainForComposition(&device, &desc, None) {
-                Ok(s) => {
-                    println!("create_and_attach_swapchain: Created swap chain successfully");
+            debug_log(&format!(
+                "create_and_attach_swapchain: Attempting swapchain ({}x{}, fmt={:?}, swap_effect={:?}, alpha={:?}, buffers={}, usage=0x{:X})",
+                desc.Width, desc.Height, desc.Format, desc.SwapEffect, desc.AlphaMode, desc.BufferCount, desc.BufferUsage.0
+            ));
+            let mut sc_attempt: Option<IDXGISwapChain1> = match factory.CreateSwapChainForComposition(&device, &desc, None) {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    debug_log(&format!("create_and_attach_swapchain: initial CreateSwapChainForComposition failed: {:?}", e));
+                    None
+                }
+            };
+
+            if sc_attempt.is_none() {
+                // Fallback 1: straight alpha
+                desc.AlphaMode = windows::Win32::Graphics::Dxgi::Common::DXGI_ALPHA_MODE_STRAIGHT;
+                debug_log(&format!("create_and_attach_swapchain: retry with STRAIGHT alpha (alpha={:?})", desc.AlphaMode));
+                sc_attempt = match factory.CreateSwapChainForComposition(&device, &desc, None) {
+                    Ok(s) => Some(s),
+                    Err(e) => { debug_log(&format!("fallback1 failed: {:?}", e)); None }
+                };
+            }
+            if sc_attempt.is_none() {
+                // Fallback 2: ignore alpha (opaque)
+                desc.AlphaMode = windows::Win32::Graphics::Dxgi::Common::DXGI_ALPHA_MODE_IGNORE;
+                debug_log(&format!("create_and_attach_swapchain: retry with IGNORE alpha (alpha={:?})", desc.AlphaMode));
+                sc_attempt = match factory.CreateSwapChainForComposition(&device, &desc, None) {
+                    Ok(s) => Some(s),
+                    Err(e) => { debug_log(&format!("fallback2 failed: {:?}", e)); None }
+                };
+            }
+            if sc_attempt.is_none() {
+                // Fallback 3: change swap effect to FLIP_DISCARD
+                desc.SwapEffect = windows::Win32::Graphics::Dxgi::DXGI_SWAP_EFFECT_FLIP_DISCARD;
+                desc.AlphaMode = windows::Win32::Graphics::Dxgi::Common::DXGI_ALPHA_MODE_PREMULTIPLIED; // reset to premultiplied
+                debug_log(&format!("create_and_attach_swapchain: retry with FLIP_DISCARD (swap_effect={:?}, alpha={:?})", desc.SwapEffect, desc.AlphaMode));
+                sc_attempt = match factory.CreateSwapChainForComposition(&device, &desc, None) {
+                    Ok(s) => Some(s),
+                    Err(e) => { debug_log(&format!("fallback3 failed: {:?}", e)); None }
+                };
+            }
+            let sc: IDXGISwapChain1 = match sc_attempt {
+                Some(s) => {
+                    debug_log("create_and_attach_swapchain: Created swap chain successfully (after possible fallbacks)");
                     s
                 },
-                Err(e) => {
-                    println!("create_and_attach_swapchain: CreateSwapChainForComposition failed: {:?}", e);
+                None => {
+                    debug_log("create_and_attach_swapchain: All swapchain creation attempts failed");
                     return;
-                },
+                }
             };
 
             // This is the critical part - getting the raw pointer correctly
@@ -193,34 +287,34 @@ impl BlitzHost {
             
             // 2. Get the raw pointer from the interface
             let raw_ptr = windows::core::Interface::as_raw(&sc_ptr);
-            println!("create_and_attach_swapchain: Raw COM pointer: {:?}", raw_ptr);
+            debug_log(&format!("create_and_attach_swapchain: Raw COM pointer: {:?}", raw_ptr));
             
             // 3. Convert to u64 for passing through WinRT boundary
             let ptr_u64 = raw_ptr as usize as u64;
-            println!("create_and_attach_swapchain: Converted to u64: 0x{:X}", ptr_u64);
+            debug_log(&format!("create_and_attach_swapchain: Converted to u64: 0x{:X}", ptr_u64));
             
             // 4. Call the attacher with the real pointer
-            println!("create_and_attach_swapchain: Calling AttachSwapChain with real pointer...");
+            debug_log("create_and_attach_swapchain: Calling AttachSwapChain with real pointer...");
             let result = attacher.AttachSwapChain(ptr_u64);
             
             // 5. Check result
             match result {
-                Ok(_) => println!("create_and_attach_swapchain: AttachSwapChain call succeeded"),
-                Err(e) => println!("create_and_attach_swapchain: AttachSwapChain call failed: {:?}", e),
+                Ok(_) => debug_log("create_and_attach_swapchain: AttachSwapChain call succeeded"),
+                Err(e) => debug_log(&format!("create_and_attach_swapchain: AttachSwapChain call failed: {:?}", e)),
             }
 
             // Store for rendering
             self.d3d_device = Some(device);
             self.d3d_context = Some(context);
             self.swapchain = Some(sc);
-            println!("create_and_attach_swapchain: Successfully stored device, context, and swapchain");
+            debug_log("create_and_attach_swapchain: Successfully stored device, context, and swapchain");
             if let Some(sc_ref) = &self.swapchain { self.renderer.set_swapchain(sc_ref.clone(), width, height); }
             
             // Ensure our renderer matches the current size
             self.renderer.set_size(width, height);
             
             // Test the rendering path immediately
-            println!("create_and_attach_swapchain: Testing immediate render path");
+            debug_log("create_and_attach_swapchain: Testing immediate render path");
             self.render_once();
         }
     }
@@ -264,42 +358,48 @@ impl BlitzHost {
     }
 
     pub fn render_once(&mut self) {
-        println!("render_once: Starting rendering...");
+    debug_log("render_once: Starting rendering...");
         let (width, height) = self.doc.viewport().window_size;
         let scale = self.doc.viewport().scale_f64();
         self.doc.resolve();
+
+        // Lazy attach fallback: if we have an attacher but no swapchain yet, attempt creation now.
+        if self.swapchain.is_none() && self.attacher.is_some() {
+            debug_log("render_once: No swapchain yet; attempting lazy creation");
+            self.create_and_attach_swapchain();
+        }
         
     // If we have a panel-backed swapchain, render via Vello (GPU) into an intermediate texture,
     // then upload/copy into the D3D11 backbuffer.
         if let Some(sc) = &self.swapchain {
-            println!("render_once: Found swapchain, attempting to render");
+            debug_log("render_once: Found swapchain, attempting to render");
             unsafe {
                 // Get back buffer
                 match sc.GetBuffer::<ID3D11Texture2D>(0) {
                     Ok(tex) => {
-                        println!("render_once: Successfully got back buffer texture");
+                        debug_log("render_once: Successfully got back buffer texture");
                         
                         // If we don't have a context yet, derive device/context from the texture
                         if self.d3d_context.is_none() {
-                            println!("render_once: Need to get D3D context from texture");
+                            debug_log("render_once: Need to get D3D context from texture");
                             let res: &ID3D11Resource = (&tex).into();
                             match res.GetDevice() {
                                 Ok(device) => {
                                     match device.GetImmediateContext() {
                                         Ok(ctx) => {
-                                            println!("render_once: Successfully got device and context from texture");
+                                            debug_log("render_once: Successfully got device and context from texture");
                                             self.d3d_device = Some(device);
                                             self.d3d_context = Some(ctx);
                                         },
-                                        Err(e) => println!("render_once: Failed to get immediate context: {:?}", e),
+                                        Err(e) => debug_log(&format!("render_once: Failed to get immediate context: {:?}", e)),
                                     }
                                 },
-                                Err(e) => println!("render_once: Failed to get device from resource: {:?}", e),
+                                Err(e) => debug_log(&format!("render_once: Failed to get device from resource: {:?}", e)),
                             }
                         }
                         
                         if self.d3d_context.is_none() {
-                            println!("render_once: No D3D context available, can't render");
+                            debug_log("render_once: No D3D context available, can't render");
                             return; // can't render without a context
                         }
                         
@@ -314,20 +414,17 @@ impl BlitzHost {
                         // Render via D2D backend directly into the backbuffer
                         self.renderer.render(|scene| paint_scene(scene, &self.doc, scale, w, h));
                     },
-                    Err(e) => println!("render_once: Failed to get back buffer: {:?}", e),
+                    Err(e) => debug_log(&format!("render_once: Failed to get back buffer: {:?}", e)),
                 }
                 
                 // Present the swapchain
                 let hr = sc.Present(1, DXGI_PRESENT(0));
-                if hr.is_ok() {
-                    println!("render_once: Successfully presented swapchain");
-                } else {
-                    println!("render_once: Failed to present swapchain: {:?}", hr);
-                }
+                if hr.is_ok() { debug_log("render_once: Successfully presented swapchain"); }
+                else { debug_log(&format!("render_once: Failed to present swapchain: {:?}", hr)); }
             }
             return;
         } else {
-            println!("render_once: No swapchain found, trying fallback renderer");
+            debug_log("render_once: No swapchain found, trying fallback renderer");
         }
 
         // Fallback to anyrender/vello window path if active (when HWND path is used)

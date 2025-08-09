@@ -23,8 +23,6 @@
         <SwapChainPanel
             x:Name="BlitzPanel"
             Grid.Row="0"
-            Width="500"
-            Height="500"
             HorizontalAlignment="Stretch"
             VerticalAlignment="Stretch"
             Loaded="BlitzPanel_Loaded"

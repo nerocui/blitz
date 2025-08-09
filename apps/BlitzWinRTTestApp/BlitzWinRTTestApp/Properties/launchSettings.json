@@ -1,7 +1,8 @@
 {
   "profiles": {
     "BlitzWinRTTestApp (Package)": {
-      "commandName": "MsixPackage"
+      "commandName": "MsixPackage",
+      "nativeDebugging": true
     },
     "BlitzWinRTTestApp (Unpackaged)": {
       "commandName": "Project"
