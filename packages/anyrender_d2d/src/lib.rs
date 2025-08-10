@@ -44,8 +44,15 @@ enum Command {
     FillPath { path: Vec<PathEl>, brush: RecordedBrush },
     StrokePath { path: Vec<PathEl>, brush: RecordedBrush, width: f64 },
     BoxShadow { rect: Rect, color: Color },
-    // Store raw glyph indices + origin; avoids misinterpreting glyph ids as Unicode codepoints.
-    GlyphRun { glyph_indices: Vec<u16>, origin: (f32,f32), size: f32, color: Color },
+    // Store raw glyph indices + per-glyph advances + origin (baseline start). Advances derived
+    // from provided absolute x positions so we maintain original shaping/spacing from layout.
+    GlyphRun { glyph_indices: Vec<u16>, advances: Vec<f32>, origin: (f32,f32), size: f32, style: GlyphRenderStyle },
+}
+
+#[derive(Clone)]
+enum GlyphRenderStyle {
+    Fill { color: Color },
+    Stroke { color: Color, width: f32 },
 }
 
 #[derive(Clone)]
@@ -110,16 +117,36 @@ impl<'a> PaintScene for D2DScenePainter<'a> {
             self.scene.commands.push(Command::FillPath { path: v, brush: brush_rec });
         }
     }
-    fn draw_glyphs<'b, 's: 'b>(&'s mut self, _font: &'b Font, font_size: f32, _hint: bool, _norm: &'b [NormalizedCoord], _style: impl Into<StyleRef<'b>>, brush: impl Into<BrushRef<'b>>, brush_alpha: f32, _transform: Affine, _glyph_transform: Option<Affine>, glyphs: impl Iterator<Item = Glyph>) {
-        let mut glyph_indices = Vec::new();
-        let mut origin: Option<(f32,f32)> = None;
-        for g in glyphs {
-            if origin.is_none() { origin = Some((g.x as f32, g.y as f32)); }
+    fn draw_glyphs<'b, 's: 'b>(&'s mut self, _font: &'b Font, font_size: f32, _hint: bool, _norm: &'b [NormalizedCoord], style: impl Into<StyleRef<'b>>, brush: impl Into<BrushRef<'b>>, brush_alpha: f32, transform: Affine, _glyph_transform: Option<Affine>, glyphs: impl Iterator<Item = Glyph>) {
+        let style_ref: StyleRef<'b> = style.into();
+        let brush_color = match brush.into() { BrushRef::Solid(c) => c.with_alpha(c.components[3] * brush_alpha), _ => Color::BLACK };
+        let glyph_style = match style_ref {
+            StyleRef::Fill(_) => GlyphRenderStyle::Fill { color: brush_color },
+            StyleRef::Stroke(stroke) => {
+                GlyphRenderStyle::Stroke { color: brush_color, width: stroke.width as f32 }
+            }
+        };
+        // Collect glyphs first.
+        let collected: Vec<Glyph> = glyphs.collect();
+        if collected.is_empty() { return; }
+        // Single run: upstream stroke_text already iterates lines; we no longer split heuristically here.
+        let origin_x = collected.first().unwrap().x as f32 + transform.as_coeffs()[4] as f32; // e (translation x)
+        let origin_y = collected.first().unwrap().y as f32 + transform.as_coeffs()[5] as f32; // f (translation y)
+        let mut glyph_indices: Vec<u16> = Vec::with_capacity(collected.len());
+        let mut advances: Vec<f32> = Vec::with_capacity(collected.len());
+        for (i, g) in collected.iter().enumerate() {
             glyph_indices.push(g.id as u16);
+            if i + 1 < collected.len() {
+                let mut adv = (collected[i+1].x - g.x) as f32;
+                if adv < 0.0 { adv = 0.0; }
+                let max_reasonable = font_size * 2.0;
+                if adv > max_reasonable { adv = font_size * 0.6; }
+                advances.push(adv);
+            }
         }
-        let color = match brush.into() { BrushRef::Solid(c) => c.with_alpha(c.components[3] * brush_alpha), _ => Color::BLACK };
-        let origin = origin.unwrap_or((0.0,0.0));
-        self.scene.commands.push(Command::GlyphRun { glyph_indices, origin, size: font_size, color });
+        let last_adv = if advances.is_empty() { font_size * 0.6 } else { (advances.iter().copied().sum::<f32>() / advances.len() as f32).max(1.0) };
+        advances.push(last_adv);
+        self.scene.commands.push(Command::GlyphRun { glyph_indices, advances, origin: (origin_x, origin_y), size: font_size, style: glyph_style });
     }
     fn draw_box_shadow(&mut self, _transform: Affine, rect: Rect, brush: Color, _radius: f64, _std_dev: f64) {
         self.scene.commands.push(Command::BoxShadow { rect, color: brush });
@@ -279,25 +306,28 @@ impl D2DWindowRenderer {
                         let r = D2D_RECT_F { left: (rect.x0 - 4.0) as f32, top: (rect.y0 - 4.0) as f32, right: (rect.x1 + 4.0) as f32, bottom: (rect.y1 + 4.0) as f32 };
                         let _ = ctx.FillRectangle(&r, &brush);
                     }
-                    Command::GlyphRun { glyph_indices, origin, size, color } => {
+                    Command::GlyphRun { glyph_indices, advances, origin, size, style } => {
                         if let Some(face) = &self.dwrite_font_face {
                             if !glyph_indices.is_empty() {
+                                let (color, stroke_width_opt) = match style {
+                                    GlyphRenderStyle::Fill { color } => (color, None),
+                                    GlyphRenderStyle::Stroke { color, width } => (color, Some(width)),
+                                };
                                 let brush = self.create_solid_brush(color);
-                                // Provide nominal advances so glyphs don't overprint; use 0.6 em per glyph as rough fallback.
-                                let nominal = (size * 0.6).max(1.0);
-                                let advances_vec: Vec<f32> = std::iter::repeat(nominal).take(glyph_indices.len()).collect();
+                                // Use recorded advances (already derived). Fallback: if lengths mismatch, bail.
+                                if advances.len() != glyph_indices.len() { continue; }
                                 let run = DWRITE_GLYPH_RUN {
                                     fontFace: std::mem::ManuallyDrop::new(Some(face.clone())),
                                     fontEmSize: size,
                                     glyphCount: glyph_indices.len() as u32,
                                     glyphIndices: glyph_indices.as_ptr(),
-                                    glyphAdvances: advances_vec.as_ptr(),
+                                    glyphAdvances: advances.as_ptr(),
                                     glyphOffsets: std::ptr::null(),
                                     isSideways: false.into(),
                                     bidiLevel: 0,
                                 };
                                 let origin_pt = D2D_POINT_2F { x: origin.0, y: origin.1 };
-                                // ID2D1DeviceContext::DrawGlyphRun expects (point, *run, description, brush, measuring_mode)
+                                // Stroke variant currently falls back to fill rendering until outline support is added.
                                 let _ = ctx.DrawGlyphRun(origin_pt, &run, None, &brush, DWRITE_MEASURING_MODE_NATURAL);
                             }
                         }
@@ -417,6 +447,7 @@ impl D2DWindowRenderer {
             Some(geom.into())
         }
     }
+
 }
 
 impl WindowRenderer for D2DWindowRenderer {
