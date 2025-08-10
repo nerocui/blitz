@@ -48,6 +48,10 @@ pub struct BlitzHost {
     d3d_context: Option<ID3D11DeviceContext>,
     swapchain: Option<IDXGISwapChain1>,
     attacher: Option<ISwapChainAttacher>,
+    // Rendering control
+    content_loaded: bool,
+    // simple frame invalidation flag (best-effort; we still allow forced render)
+    needs_render: bool,
 }
 
 impl BlitzHost {
@@ -55,8 +59,9 @@ impl BlitzHost {
         // No HWND usage in WinUI path. We strictly render into the provided SwapChainPanel swapchain.
 
         // Minimal HTML doc placeholder; host can replace by calling load_html.
+        // Start with an empty document so we don't flash placeholder content before real HTML loads.
         let mut doc = HtmlDocument::from_html(
-            "<html><body><h1>Blitz WinUI host</h1><p>Initialize succeeded.</p></body></html>",
+            "<html><head></head><body style=\"margin:0;padding:0;background:transparent;\"></body></html>",
             DocumentConfig::default(),
         );
 
@@ -72,7 +77,9 @@ impl BlitzHost {
             d3d_device: None, 
             d3d_context: None, 
             swapchain: None, 
-            attacher: None 
+            attacher: None,
+            content_loaded: false,
+            needs_render: false,
         })
     }
     
@@ -87,6 +94,11 @@ impl BlitzHost {
     // Method to get a reference to the attacher
     pub fn get_attacher(&self) -> Option<ISwapChainAttacher> {
         self.attacher.clone()
+    }
+
+    pub fn set_verbose_logging(&mut self, enabled: bool) {
+        anyrender_d2d::set_verbose_logging(enabled);
+        debug_log(&format!("SetVerboseLogging: enabled={}", enabled));
     }
 
     // SwapChainPanel interop: detect if the provided Object is an attacher callback; if so, store it and, if possible, create and attach swapchain now.
@@ -312,9 +324,10 @@ impl BlitzHost {
             
             // Ensure our renderer matches the current size
             self.renderer.set_size(width, height);
-            
-            // Test the rendering path immediately
-            debug_log("create_and_attach_swapchain: Testing immediate render path");
+            // Schedule an initial placeholder render so panel is not visually blank while waiting for real content
+            self.needs_render = true;
+            debug_log("create_and_attach_swapchain: swapchain ready (scheduling placeholder render)");
+            // Perform a placeholder render immediately (will draw debug background even without content)
             self.render_once();
         }
     }
@@ -353,15 +366,35 @@ impl BlitzHost {
     self.renderer.set_size(width.max(1), height.max(1));
         // Resize DXGI swapchain if present
         if let Some(sc) = &self.swapchain {
-            let _ = unsafe { sc.ResizeBuffers(0, width, height, DXGI_FORMAT(28), windows::Win32::Graphics::Dxgi::DXGI_SWAP_CHAIN_FLAG(0)) };
+            // Release all references (target + cached bitmap) so ResizeBuffers can succeed.
+            self.renderer.release_backbuffer_resources();
+            let mut hr = unsafe { sc.ResizeBuffers(0, width, height, DXGI_FORMAT(28), windows::Win32::Graphics::Dxgi::DXGI_SWAP_CHAIN_FLAG(0)) };
+            if !hr.is_ok() {
+                debug_log(&format!("resize: first ResizeBuffers attempt failed hr={:?} ({}x{}); retrying after forced release", hr, width, height));
+                // Extra safety: ensure target cleared again before retry
+                self.renderer.release_backbuffer_resources();
+                hr = unsafe { sc.ResizeBuffers(0, width, height, DXGI_FORMAT(28), windows::Win32::Graphics::Dxgi::DXGI_SWAP_CHAIN_FLAG(0)) };
+            }
+            if hr.is_ok() { debug_log(&format!("resize: swapchain ResizeBuffers ok ({}x{})", width, height)); }
+            else { debug_log(&format!("resize: ResizeBuffers failed hr={:?} ({}x{})", hr, width, height)); }
         }
+    // Mark for redraw (layout may depend on viewport size)
+    self.needs_render = true;
+    // Eagerly render once to avoid blank gap after resize
+    if self.content_loaded { self.render_once(); }
     }
 
     pub fn render_once(&mut self) {
-    debug_log("render_once: Starting rendering...");
+    // Always allow a first placeholder render even before content loads so we can show debug background
+    if !self.content_loaded && !self.needs_render {
+        // Nothing requested; no placeholder invalidation
+        return;
+    }
+    if self.content_loaded && !self.needs_render { return; }
+    debug_log(&format!("render_once: begin (dirty={}, content_loaded={})", self.needs_render, self.content_loaded));
         let (width, height) = self.doc.viewport().window_size;
         let scale = self.doc.viewport().scale_f64();
-        self.doc.resolve();
+        if self.content_loaded { self.doc.resolve(); }
 
         // Lazy attach fallback: if we have an attacher but no swapchain yet, attempt creation now.
         if self.swapchain.is_none() && self.attacher.is_some() {
@@ -372,7 +405,8 @@ impl BlitzHost {
     // If we have a panel-backed swapchain, render via Vello (GPU) into an intermediate texture,
     // then upload/copy into the D3D11 backbuffer.
         if let Some(sc) = &self.swapchain {
-            debug_log("render_once: Found swapchain, attempting to render");
+            if self.content_loaded { debug_log("render_once: Found swapchain, attempting to render"); }
+            else { debug_log("render_once: Found swapchain, rendering placeholder (no content yet)"); }
             unsafe {
                 // Get back buffer
                 match sc.GetBuffer::<ID3D11Texture2D>(0) {
@@ -411,25 +445,40 @@ impl BlitzHost {
                         if self.d3d_device.is_some() && self.swapchain.is_some() {
                             // Already set
                         }
-                        // Render via D2D backend directly into the backbuffer
-                        self.renderer.render(|scene| paint_scene(scene, &self.doc, scale, w, h));
+                        if self.content_loaded {
+                            // Render via D2D backend directly into the backbuffer
+                            self.renderer.render(|scene| paint_scene(scene, &self.doc, scale, w, h));
+                            debug_log(&format!("render_once: D2D command_count={} ({}x{})", self.renderer.last_command_count(), w, h));
+                        } else {
+                            // Placeholder: empty scene -> debug background still drawn by backend playback
+                            self.renderer.render(|_scene| { /* empty */ });
+                            debug_log("render_once: placeholder frame rendered (no content)");
+                        }
                     },
                     Err(e) => debug_log(&format!("render_once: Failed to get back buffer: {:?}", e)),
                 }
                 
                 // Present the swapchain
                 let hr = sc.Present(1, DXGI_PRESENT(0));
-                if hr.is_ok() { debug_log("render_once: Successfully presented swapchain"); }
+                if hr.is_ok() { debug_log("render_once: presented"); }
                 else { debug_log(&format!("render_once: Failed to present swapchain: {:?}", hr)); }
             }
+            // best-effort consume only if real content; placeholder can be redrawn later when content arrives
+            if self.content_loaded { self.needs_render = false; }
             return;
         } else {
             debug_log("render_once: No swapchain found, trying fallback renderer");
         }
 
         // Fallback to anyrender/vello window path if active (when HWND path is used)
-        self.renderer
-            .render(|scene| paint_scene(scene, &self.doc, scale, width, height));
+    if self.content_loaded {
+        self.renderer.render(|scene| paint_scene(scene, &self.doc, scale, width, height));
+        debug_log(&format!("render_once: D2D command_count={} (fallback path)", self.renderer.last_command_count()));
+        self.needs_render = false;
+    } else {
+        self.renderer.render(|_scene| { /* empty placeholder */ });
+        debug_log("render_once: placeholder frame rendered (fallback path, no content)");
+    }
     }
 
     pub fn load_html(&mut self, html: &str) {
@@ -440,6 +489,11 @@ impl BlitzHost {
         self.doc = Box::new(new_doc);
         self.doc.set_viewport(viewport);
         self.doc.set_viewport_scroll(scroll);
+    debug_log(&format!("load_html: new document length={} chars", html.len()));
+    self.content_loaded = true;
+    self.needs_render = true; // schedule first real paint; actual render will happen on next render_once call (timer or explicit)
+    // Optionally trigger immediate render to minimize latency
+    self.render_once();
     }
 
     // Input bridging (to be called from C# event handlers)
@@ -447,13 +501,14 @@ impl BlitzHost {
         use blitz_traits::events::{BlitzMouseButtonEvent, MouseEventButtons, UiEvent};
         let buttons = MouseEventButtons::from_bits_truncate(buttons as u8);
         let mods = keyboard_types::Modifiers::from_bits_truncate(mods);
-        self.doc.handle_ui_event(UiEvent::MouseMove(BlitzMouseButtonEvent {
+    self.doc.handle_ui_event(UiEvent::MouseMove(BlitzMouseButtonEvent {
             x,
             y,
             button: Default::default(),
             buttons,
             mods,
         }));
+    self.needs_render = true; // hover/scroll effects etc.
     }
 
     pub fn pointer_down(&mut self, x: f32, y: f32, button: u8, buttons: u32, mods: u32) {
@@ -468,13 +523,14 @@ impl BlitzHost {
         };
         let buttons = MouseEventButtons::from_bits_truncate(buttons as u8);
         let mods = keyboard_types::Modifiers::from_bits_truncate(mods);
-        self.doc.handle_ui_event(UiEvent::MouseDown(BlitzMouseButtonEvent {
+    self.doc.handle_ui_event(UiEvent::MouseDown(BlitzMouseButtonEvent {
             x,
             y,
             button: btn,
             buttons,
             mods,
         }));
+    self.needs_render = true;
     }
 
     pub fn pointer_up(&mut self, x: f32, y: f32, button: u8, buttons: u32, mods: u32) {
@@ -489,13 +545,14 @@ impl BlitzHost {
         };
         let buttons = MouseEventButtons::from_bits_truncate(buttons as u8);
         let mods = keyboard_types::Modifiers::from_bits_truncate(mods);
-        self.doc.handle_ui_event(UiEvent::MouseUp(BlitzMouseButtonEvent {
+    self.doc.handle_ui_event(UiEvent::MouseUp(BlitzMouseButtonEvent {
             x,
             y,
             button: btn,
             buttons,
             mods,
         }));
+    self.needs_render = true;
     }
 
     pub fn wheel_scroll(&mut self, dx: f64, dy: f64) {
@@ -504,6 +561,7 @@ impl BlitzHost {
         } else {
             self.doc.scroll_viewport_by(dx, dy);
         }
+    self.needs_render = true;
     }
 
     pub fn key_down(&mut self, vk: u32, ch: u32, mods: u32, is_auto_repeating: bool) {
@@ -523,7 +581,8 @@ impl BlitzHost {
             state: KeyState::Pressed,
             text,
         };
-        self.doc.handle_ui_event(UiEvent::KeyDown(evt));
+    self.doc.handle_ui_event(UiEvent::KeyDown(evt));
+    self.needs_render = true;
     }
 
     pub fn key_up(&mut self, vk: u32, ch: u32, mods: u32) {
@@ -543,7 +602,8 @@ impl BlitzHost {
             state: KeyState::Released,
             text,
         };
-        self.doc.handle_ui_event(UiEvent::KeyUp(evt));
+    self.doc.handle_ui_event(UiEvent::KeyUp(evt));
+    self.needs_render = true;
     }
 }
 

@@ -57,6 +57,16 @@ impl Host {
             .ok()
         }
     }
+    pub fn SetVerboseLogging(&self, enabled: bool) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).SetVerboseLogging)(
+                windows_core::Interface::as_raw(this),
+                enabled,
+            )
+            .ok()
+        }
+    }
     pub fn TestAttacherConnection(&self) -> windows_core::Result<bool> {
         let this = self;
         unsafe {
@@ -111,7 +121,7 @@ impl windows_core::RuntimeName for Host {
 }
 unsafe impl Send for Host {}
 unsafe impl Sync for Host {}
-windows_core::imp::define_interface!(IHost, IHost_Vtbl, 0xc40aa8cf_6891_5b51_9c4d_f87a066918e9);
+windows_core::imp::define_interface!(IHost, IHost_Vtbl, 0xe152c88b_c991_5a71_8c7f_11d89dd8512a);
 impl windows_core::RuntimeType for IHost {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -127,6 +137,7 @@ pub trait IHost_Impl: windows_core::IUnknownImpl {
     fn Resize(&self, width: u32, height: u32, scale: f32) -> windows_core::Result<()>;
     fn RenderOnce(&self) -> windows_core::Result<()>;
     fn LoadHtml(&self, html: &windows_core::HSTRING) -> windows_core::Result<()>;
+    fn SetVerboseLogging(&self, enabled: bool) -> windows_core::Result<()>;
     fn TestAttacherConnection(&self) -> windows_core::Result<bool>;
 }
 impl IHost_Vtbl {
@@ -172,6 +183,16 @@ impl IHost_Vtbl {
                 IHost_Impl::LoadHtml(this, core::mem::transmute(&html)).into()
             }
         }
+        unsafe extern "system" fn SetVerboseLogging<Identity: IHost_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            enabled: bool,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                IHost_Impl::SetVerboseLogging(this, enabled).into()
+            }
+        }
         unsafe extern "system" fn TestAttacherConnection<
             Identity: IHost_Impl,
             const OFFSET: isize,
@@ -197,6 +218,7 @@ impl IHost_Vtbl {
             Resize: Resize::<Identity, OFFSET>,
             RenderOnce: RenderOnce::<Identity, OFFSET>,
             LoadHtml: LoadHtml::<Identity, OFFSET>,
+            SetVerboseLogging: SetVerboseLogging::<Identity, OFFSET>,
             TestAttacherConnection: TestAttacherConnection::<Identity, OFFSET>,
         }
     }
@@ -219,6 +241,8 @@ pub struct IHost_Vtbl {
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
+    pub SetVerboseLogging:
+        unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     pub TestAttacherConnection:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
 }

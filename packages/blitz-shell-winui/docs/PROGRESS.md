@@ -58,31 +58,28 @@ Attempting to drive the panel through wgpu required creating a surface without a
 
 ## Session Progress Summary (Aug 2025)
 
-Recent development concentrated on text rendering correctness and backend hygiene:
+Focus: stabilize Direct2D backend integration + diagnostic clarity.
 
-- Corrected D3D11 device creation signature and swapchain acquisition flow.
-- Added debugger logging via `OutputDebugString` wrapper for early device/swapchain diagnostics.
-- Introduced `GlyphRun` scene command carrying glyph indices, advances, origin, size, and style.
-- Integrated DirectWrite glyph run rendering (removed naive path accumulation text approach).
-- Derived glyph advances from upstream layout absolute positions to maintain shaping spacing fidelity.
-- Experimented with heuristic multi-line splitting inside backend; reverted to trusting upstream line segmentation (Parley) to avoid backend duplicating layout logic.
-- Added style mapping scaffold (`GlyphRenderStyle` fill/stroke); stroke currently renders as fill pending outline support.
-- Removed obsolete `text_format_cache` and associated dead code.
-- Cleaned warnings and stabilized build after enum evolution.
+Key achievements (condensed):
+- Reliable swapchain rendering after earlier blank-frame regression (lazy D2D init + cached backbuffer bitmap).
+- Robust resize path (explicit release of D2D target & cached bitmap, retry on failure, no outstanding ref errors).
+- Multi-strategy backbuffer bitmap creation (explicit props → inherit → 96dpi fallback) with logging of E_INVALIDARG failures.
+- Runtime verbose logging toggle (`SetVerboseLogging` exposed via WinRT) to eliminate per‑frame overhead in normal runs.
+- Command recording diagnostics (pre/post counts, box shadow enumeration) now gated behind verbose mode.
+- DirectWrite glyph run path finalized for current scope; obsolete text path logic removed.
 
-## Newly Identified Follow-ups
-
-- Implement outline-based stroke text (geometry generation + stroke drawing).
-- Introduce transform command or batched transform stack to avoid baking translation into glyph origins for future animations.
-- Provide detailed metrics test rendering (baseline, ascent/descent overlays) for debugging typography.
+## Newly Identified Follow-ups (Snapshot)
+- Outline-based glyph stroking.
+- Transform stack refinement (avoid baked translations).
+- Typography metrics visualization overlay.
 
 ---
 
-## Decision Log (Key Points)
-- Pivoted from wgpu/Vello to Direct2D due to lack of HWND + desire to avoid custom swapchain mediation.
-- Chose command recording pattern to stay aligned with existing `anyrender` abstraction and allow future backend swapping.
-- Graceful build fallback (skip WinMD regen) to reduce contributor friction; rely on committed generated bindings when tools absent.
-- Adopted caching early (gradients/images) to avoid recreating D2D resources every frame.
+## Decision Log (Highlights)
+- Direct2D pivot (no HWND requirement) retained.
+- Command recording abstraction preserved for backend interchangeability.
+- Build remains tolerant of missing midlrt (no panic).
+- Caching + lazy init preferred over upfront heavy initialization.
 
 ## Open Questions
 - Best path for accurate sweep gradient (custom pixel shader vs. incremental stops transformation)?

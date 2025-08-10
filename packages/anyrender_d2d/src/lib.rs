@@ -16,6 +16,7 @@
 //! (Initial version implements a subset: fill rects, strokes, images, text placeholder.)
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyrender::{PaintScene, WindowHandle, WindowRenderer, Paint, Glyph, NormalizedCoord};
 use kurbo::{Affine, Rect, Shape, Stroke, PathEl};
@@ -29,6 +30,8 @@ use windows::Win32::Graphics::DirectWrite::*;
 use windows::Win32::Graphics::Dxgi::{IDXGISwapChain1, IDXGISurface, IDXGIDevice};
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
+use windows::Win32::System::Diagnostics::Debug::OutputDebugStringA;
+use windows::core::PCSTR;
 
 // NOTE: Do not rely on HWND in WinUI shell path
 
@@ -43,7 +46,7 @@ enum Command {
     StrokeRect { rect: Rect, brush: RecordedBrush, width: f64 },
     FillPath { path: Vec<PathEl>, brush: RecordedBrush },
     StrokePath { path: Vec<PathEl>, brush: RecordedBrush, width: f64 },
-    BoxShadow { rect: Rect, color: Color },
+    BoxShadow { rect: Rect, color: Color, radius: f64, std_dev: f64 },
     // Store raw glyph indices + per-glyph advances + origin (baseline start). Advances derived
     // from provided absolute x positions so we maintain original shaping/spacing from layout.
     GlyphRun { glyph_indices: Vec<u16>, advances: Vec<f32>, origin: (f32,f32), size: f32, style: GlyphRenderStyle },
@@ -85,6 +88,18 @@ pub struct D2DScenePainter<'a> {
     scene: &'a mut D2DScene,
 }
 
+fn debug_log_d2d(msg: &str) {
+    let mut bytes = msg.as_bytes().to_vec();
+    if !bytes.ends_with(b"\n") { bytes.push(b'\n'); }
+    bytes.push(0);
+    unsafe { OutputDebugStringA(PCSTR(bytes.as_ptr())); }
+}
+
+// Runtime-switchable verbose logging (disabled by default for perf)
+static VERBOSE_LOG: AtomicBool = AtomicBool::new(false);
+pub fn set_verbose_logging(enabled: bool) { VERBOSE_LOG.store(enabled, Ordering::Relaxed); }
+#[inline] fn verbose_log_d2d(msg: &str) { if VERBOSE_LOG.load(Ordering::Relaxed) { debug_log_d2d(msg); } }
+
 impl<'a> PaintScene for D2DScenePainter<'a> {
     fn reset(&mut self) { self.scene.reset(); }
     fn push_layer(&mut self, _blend: impl Into<BlendMode>, _alpha: f32, _transform: Affine, clip: &impl Shape) {
@@ -116,10 +131,13 @@ impl<'a> PaintScene for D2DScenePainter<'a> {
             shape_to_path_elements(shape, &mut v);
             self.scene.commands.push(Command::FillPath { path: v, brush: brush_rec });
         }
+        if self.scene.commands.len() == 1 {
+            debug_log_d2d("D2DScenePainter: first command recorded (kind=Fill/Stroke) - painting pipeline active");
+        }
     }
     fn draw_glyphs<'b, 's: 'b>(&'s mut self, _font: &'b Font, font_size: f32, _hint: bool, _norm: &'b [NormalizedCoord], style: impl Into<StyleRef<'b>>, brush: impl Into<BrushRef<'b>>, brush_alpha: f32, transform: Affine, _glyph_transform: Option<Affine>, glyphs: impl Iterator<Item = Glyph>) {
-        let style_ref: StyleRef<'b> = style.into();
-        let brush_color = match brush.into() { BrushRef::Solid(c) => c.with_alpha(c.components[3] * brush_alpha), _ => Color::BLACK };
+    let style_ref: StyleRef<'b> = style.into();
+    let brush_color = match brush.into() { BrushRef::Solid(c) => c.with_alpha(c.components[3] * brush_alpha), _ => Color::BLACK };
         let glyph_style = match style_ref {
             StyleRef::Fill(_) => GlyphRenderStyle::Fill { color: brush_color },
             StyleRef::Stroke(stroke) => {
@@ -127,7 +145,7 @@ impl<'a> PaintScene for D2DScenePainter<'a> {
             }
         };
         // Collect glyphs first.
-        let collected: Vec<Glyph> = glyphs.collect();
+    let collected: Vec<Glyph> = glyphs.collect();
         if collected.is_empty() { return; }
         // Single run: upstream stroke_text already iterates lines; we no longer split heuristically here.
         let origin_x = collected.first().unwrap().x as f32 + transform.as_coeffs()[4] as f32; // e (translation x)
@@ -148,8 +166,13 @@ impl<'a> PaintScene for D2DScenePainter<'a> {
         advances.push(last_adv);
         self.scene.commands.push(Command::GlyphRun { glyph_indices, advances, origin: (origin_x, origin_y), size: font_size, style: glyph_style });
     }
-    fn draw_box_shadow(&mut self, _transform: Affine, rect: Rect, brush: Color, _radius: f64, _std_dev: f64) {
-        self.scene.commands.push(Command::BoxShadow { rect, color: brush });
+    fn draw_box_shadow(&mut self, transform: Affine, rect: Rect, brush: Color, radius: f64, std_dev: f64) {
+        // Apply only translation components of the transform (common case in current usage).
+        let coeffs = transform.as_coeffs();
+        let tx = coeffs[4];
+        let ty = coeffs[5];
+        let translated = rect + kurbo::Vec2::new(tx, ty);
+        self.scene.commands.push(Command::BoxShadow { rect: translated, color: brush, radius, std_dev });
     }
 }
 
@@ -192,16 +215,21 @@ pub struct D2DWindowRenderer {
     width: u32,
     height: u32,
     active: bool,
+    debug_shadow_logs: u32,
+    last_command_count: u32,
+    backbuffer_bitmap: Option<ID2D1Bitmap1>,
 }
 
 impl D2DWindowRenderer {
-    pub fn new() -> Self { Self { swapchain: None, d3d_device: None, d2d_factory: None, d2d_device: None, d2d_ctx: None, dwrite_factory: None, dwrite_font_face: None, gradient_cache: FxHashMap::default(), image_cache: FxHashMap::default(), scene: D2DScene::default(), width: 1, height: 1, active: false } }
+    pub fn new() -> Self { Self { swapchain: None, d3d_device: None, d2d_factory: None, d2d_device: None, d2d_ctx: None, dwrite_factory: None, dwrite_font_face: None, gradient_cache: FxHashMap::default(), image_cache: FxHashMap::default(), scene: D2DScene::default(), width: 1, height: 1, active: false, debug_shadow_logs: 0, last_command_count: 0, backbuffer_bitmap: None } }
+
+    pub fn last_command_count(&self) -> u32 { self.last_command_count }
 
     pub fn set_swapchain(&mut self, sc: IDXGISwapChain1, width: u32, height: u32) {
         self.width = width.max(1);
         self.height = height.max(1);
         self.swapchain = Some(sc.clone());
-        if self.d3d_device.is_none() { self.init_devices_from_swapchain(); }
+    if self.d3d_device.is_none() { self.init_devices_from_swapchain(); }
         self.active = true;
     }
 
@@ -251,6 +279,56 @@ impl D2DWindowRenderer {
         }
     }
 
+    /// Release any bound D2D target (backbuffer bitmap) so the swapchain can ResizeBuffers.
+    pub fn release_backbuffer_target(&self) {
+        if let Some(ctx) = &self.d2d_ctx { unsafe { let _ = ctx.SetTarget(None::<&ID2D1Image>); } }
+    }
+
+    /// Release target and cached backbuffer bitmap so the swapchain buffers can be resized.
+    pub fn release_backbuffer_resources(&mut self) {
+        if let Some(ctx) = &self.d2d_ctx { unsafe { let _ = ctx.SetTarget(None::<&ID2D1Image>); } }
+        if self.backbuffer_bitmap.is_some() {
+            debug_log_d2d("release_backbuffer_resources: dropping cached backbuffer bitmap");
+        }
+        self.backbuffer_bitmap = None;
+    }
+
+    fn recreate_backbuffer_bitmap(&mut self, surface: &IDXGISurface) -> bool {
+        self.backbuffer_bitmap = None;
+        let ctx = match &self.d2d_ctx { Some(c) => c, None => { debug_log_d2d("recreate_backbuffer_bitmap: no D2D ctx"); return false; } };
+        unsafe {
+            // Improvement: try context DPI first, then inherit, then 96dpi fallback to mitigate E_INVALIDARG.
+            let mut dpi_x = 0.0f32; let mut dpi_y = 0.0f32; ctx.GetDpi(&mut dpi_x, &mut dpi_y);
+            if let Ok(desc) = surface.GetDesc() { verbose_log_d2d(&format!("recreate_backbuffer_bitmap: surface desc fmt={:?} w={} h={}", desc.Format, desc.Width, desc.Height)); }
+            let props_ctx = D2D1_BITMAP_PROPERTIES1 {
+                pixelFormat: D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED },
+                dpiX: dpi_x, dpiY: dpi_y,
+                bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET,
+                colorContext: std::mem::ManuallyDrop::new(None),
+            };
+            let attempt_ctx = ctx.CreateBitmapFromDxgiSurface(surface, Some(&props_ctx));
+            match attempt_ctx {
+                Ok(bmp) => { verbose_log_d2d("recreate_backbuffer_bitmap: created with context DPI props"); self.backbuffer_bitmap = Some(bmp); return true; }
+                Err(e_ctx) => { verbose_log_d2d(&format!("recreate_backbuffer_bitmap: context DPI props failed hr={:?}; trying inherit", e_ctx)); }
+            }
+            if let Ok(bmp_inherit) = ctx.CreateBitmapFromDxgiSurface(surface, None) {
+                verbose_log_d2d("recreate_backbuffer_bitmap: created with inherited props (None)");
+                self.backbuffer_bitmap = Some(bmp_inherit); return true;
+            }
+            // Final fallback: explicit 96dpi
+            let props_96 = D2D1_BITMAP_PROPERTIES1 {
+                pixelFormat: D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED },
+                dpiX: 96.0, dpiY: 96.0,
+                bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET,
+                colorContext: std::mem::ManuallyDrop::new(None),
+            };
+            match ctx.CreateBitmapFromDxgiSurface(surface, Some(&props_96)) {
+                Ok(bmp3) => { debug_log_d2d("recreate_backbuffer_bitmap: created with 96dpi fallback props"); self.backbuffer_bitmap = Some(bmp3); true }
+                Err(e3) => { debug_log_d2d(&format!("recreate_backbuffer_bitmap: all creation attempts failed e3={:?}", e3)); false }
+            }
+        }
+    }
+
     fn playback(&mut self, target: &ID2D1Bitmap1) {
         let ctx = match &self.d2d_ctx {
             Some(ctx) => ctx.clone(),
@@ -261,15 +339,29 @@ impl D2DWindowRenderer {
             ctx.BeginDraw();
             // SetTarget exists on ID2D1DeviceContext
             let _ = ctx.SetTarget(target);
-            // Clear not on ID2D1DeviceContext in windows 0.58 feature set; emulate by filling full rect
+            // Clear not on ID2D1DeviceContext in windows 0.58 feature set; emulate by filling full rect with transparent (composition decides backdrop).
             let size = target.GetSize();
             let full = D2D_RECT_F { left: 0.0, top: 0.0, right: size.width, bottom: size.height };
             let clear_brush = self.create_solid_brush(Color::TRANSPARENT);
             let _ = ctx.FillRectangle(&full, &clear_brush);
+            // Reset per-frame debug counters
+            self.debug_shadow_logs = 0;
             
             // Collect commands to avoid borrow checker issues
             let commands = std::mem::take(&mut self.scene.commands);
+            let command_count = commands.len();
+            self.last_command_count = command_count as u32;
+            if command_count == 0 { debug_log_d2d("D2D: playback with 0 commands (expect fallback bg)"); }
+            else { debug_log_d2d(&format!("D2D: playback command_count={}", command_count)); }
+            // Always draw an opaque debug background to detect if contents not visible due to alpha blending.
+            let dbg = self.create_solid_brush(Color::new([0.92,0.92,0.95,1.0]));
+            let _ = ctx.FillRectangle(&full, &dbg);
+            let shadow_count = commands.iter().filter(|c| matches!(c, Command::BoxShadow { .. })).count();
+            if shadow_count > 0 {
+                debug_log_d2d(&format!("D2D: {} box shadow commands", shadow_count));
+            }
             
+            let had_commands = !commands.is_empty();
             for cmd in commands {
                 match cmd {
                     Command::FillRect { rect, brush } => {
@@ -299,17 +391,23 @@ impl D2DWindowRenderer {
                         let _ = ctx.PushAxisAlignedClip(&r, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
                     }
                     Command::PopLayer => { ctx.PopAxisAlignedClip(); }
-                    Command::BoxShadow { rect, color } => {
-                        // Approximate box shadow via drawing a filled rect with opacity and a blur effect applied to whole scene would be expensive.
-                        // Simplified: fill pre-inflated rect with alpha half (placeholder). Real implementation should use a gaussian blur effect.
-                        let brush = self.create_solid_brush(color.with_alpha(color.components[3] * 0.5));
-                        let r = D2D_RECT_F { left: (rect.x0 - 4.0) as f32, top: (rect.y0 - 4.0) as f32, right: (rect.x1 + 4.0) as f32, bottom: (rect.y1 + 4.0) as f32 };
-                        let _ = ctx.FillRectangle(&r, &brush);
+                    Command::BoxShadow { rect, color, radius, std_dev } => {
+                        // Temporary debug: log first few shadows to stderr so we can verify coordinates.
+                        if self.debug_shadow_logs < 16 {
+                            debug_log_d2d(&format!(
+                                "D2D BoxShadow rect=({}, {}, {}, {}) radius={} sd={} color rgba=({:.3},{:.3},{:.3},{:.3})",
+                                rect.x0, rect.y0, rect.x1, rect.y1, radius, std_dev,
+                                color.components[0], color.components[1], color.components[2], color.components[3]
+                            ));
+                            self.debug_shadow_logs += 1;
+                        }
+                        self.draw_gaussian_box_shadow(&ctx, rect, color, radius, std_dev);
                     }
                     Command::GlyphRun { glyph_indices, advances, origin, size, style } => {
                         if let Some(face) = &self.dwrite_font_face {
                             if !glyph_indices.is_empty() {
-                                let (color, stroke_width_opt) = match style {
+                                // Stroke not yet implemented (outline path); keep width for future use.
+                                let (color, _stroke_width_opt) = match style {
                                     GlyphRenderStyle::Fill { color } => (color, None),
                                     GlyphRenderStyle::Stroke { color, width } => (color, Some(width)),
                                 };
@@ -333,6 +431,11 @@ impl D2DWindowRenderer {
                         }
                     }
                 }
+            }
+            if !had_commands {
+                // Fallback background (single rect) for visibility when nothing recorded.
+                let bg = self.create_solid_brush(Color::WHITE);
+                let _ = ctx.FillRectangle(&full, &bg);
             }
             // Note: SetTransform removed - not available in this windows-rs version
             let _ = ctx.EndDraw(None, None);
@@ -424,7 +527,9 @@ impl D2DWindowRenderer {
     fn build_path_geometry(&self, path: &[PathEl]) -> Option<ID2D1PathGeometry> {
         let factory = self.d2d_factory.as_ref()?;
         unsafe {
-            let geom = factory.CreatePathGeometry().ok()?;
+            // CreatePathGeometry returns a PathGeometry1 in newer SDKs; cast to base interface.
+            let geom1 = factory.CreatePathGeometry().ok()?; // ID2D1PathGeometry1
+            let geom: ID2D1PathGeometry = geom1.cast().unwrap_or_else(|_| panic!("PathGeometry cast failed"));
             let sink = geom.Open().ok()?;
             {
                 for el in path {
@@ -444,7 +549,24 @@ impl D2DWindowRenderer {
                 }
             }
             sink.Close().ok();
-            Some(geom.into())
+            Some(geom)
+        }
+    }
+
+    fn draw_gaussian_box_shadow(&mut self, ctx: &ID2D1DeviceContext, rect: Rect, color: Color, radius: f64, _std_dev: f64) {
+        // Temporary simplified shadow: draw a single rounded (if radius>0) translucent expanded rect.
+        unsafe {
+            let alpha_color = color.with_alpha(color.components[3] * 0.35);
+            let brush = self.create_solid_brush(alpha_color);
+            let expand = 4.0_f32; // fixed feather
+            let base_rect = D2D_RECT_F { left: rect.x0 as f32 - expand, top: rect.y0 as f32 - expand, right: rect.x1 as f32 + expand, bottom: rect.y1 as f32 + expand };
+            if radius > 0.0 {
+                let r = radius.min((rect.width()*0.5).min(rect.height()*0.5)) as f32;
+                let rr = D2D1_ROUNDED_RECT { rect: base_rect, radiusX: r + expand, radiusY: r + expand };
+                let _ = ctx.FillRoundedRectangle(&rr, &brush);
+            } else {
+                let _ = ctx.FillRectangle(&base_rect, &brush);
+            }
         }
     }
 
@@ -461,19 +583,39 @@ impl WindowRenderer for D2DWindowRenderer {
         // Build scene
         {
             let mut painter = D2DScenePainter { scene: &mut self.scene };
+            let before = painter.scene.commands.len();
+            verbose_log_d2d(&format!("D2DWindowRenderer::render: before draw_fn commands={}", before));
             draw_fn(&mut painter);
+            let after = painter.scene.commands.len();
+            verbose_log_d2d(&format!("D2DWindowRenderer::render: after draw_fn commands={}", after));
         }
         // Acquire backbuffer and wrap in D2D bitmap
         if let Some(sc) = &self.swapchain { unsafe {
             if let Ok(surface) = sc.GetBuffer::<IDXGISurface>(0) {
-                if let Some(ctx) = &self.d2d_ctx {
-                    let bp = D2D1_BITMAP_PROPERTIES1 {
-                        pixelFormat: D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED },
-                        dpiX: 96.0, dpiY: 96.0,
-                        bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-                        colorContext: std::mem::ManuallyDrop::new(None),
-                    };
-                    if let Ok(b) = ctx.CreateBitmapFromDxgiSurface(&surface, Some(&bp)) { self.playback(&b); }
+                if self.d2d_ctx.is_none() {
+                    verbose_log_d2d("D2DWindowRenderer::render: d2d_ctx missing; attempting lazy initialization");
+                    self.init_devices_from_swapchain();
+                    if self.d2d_ctx.is_none() { debug_log_d2d("D2DWindowRenderer::render: lazy init failed (no D2D context)"); }
+                    else { verbose_log_d2d("D2DWindowRenderer::render: lazy init succeeded"); }
+                }
+                if self.d2d_ctx.is_none() { return; }
+                // (Re)create backbuffer bitmap if absent or size changed
+                let need_new = match &self.backbuffer_bitmap {
+                    Some(bmp) => {
+                        let sz = bmp.GetSize();
+                        (sz.width as u32) != self.width || (sz.height as u32) != self.height
+                    }
+                    None => true,
+                };
+                if need_new {
+                    if !self.recreate_backbuffer_bitmap(&surface) {
+                        debug_log_d2d("D2DWindowRenderer::render: cannot create backbuffer bitmap; skipping frame");
+                        return;
+                    }
+                }
+                if let Some(bmp) = self.backbuffer_bitmap.take() {
+                    self.playback(&bmp);
+                    self.backbuffer_bitmap = Some(bmp);
                 }
             }
         }}

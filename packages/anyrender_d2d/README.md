@@ -102,3 +102,36 @@ Contributions welcome—please keep changes modular and avoid leaking Direct2D t
 - Box shadow is visually incorrect; flagged for replacement.
 
 Contributions implementing any of the above are welcome—please keep changes modular.
+
+## Verbose Logging
+
+The backend exposes a runtime switch to reduce per-frame logging overhead in production:
+
+```rust
+anyrender_d2d::set_verbose_logging(true);  // enable detailed logs
+anyrender_d2d::set_verbose_logging(false); // disable (default)
+```
+
+Verbose mode adds:
+- Scene command pre/post counts
+- Successful bitmap creation attempts
+- Box shadow command enumeration
+- Lazy init success traces
+
+Essential errors (e.g. all bitmap creation attempts failed) always log regardless of the flag.
+
+## Swapchain Backbuffer Bitmap Creation (E_INVALIDARG Diagnostics)
+
+Some drivers reject explicit bitmap property combinations for swapchain surfaces (returning `0x80070057`).
+
+Strategy implemented:
+1. Attempt explicit props using context DPI and premultiplied BGRA.
+2. If that fails, attempt inherit (`None`).
+3. If still failing, attempt explicit 96 DPI fallback.
+4. If all fail, frame is skipped and an error is logged.
+
+Future refinement: cache a per-renderer flag to skip explicit attempts after a first failure sequence to avoid repeated failing COM calls.
+
+## Resize Handling
+
+Before `IDXGISwapChain1::ResizeBuffers` we drop the cached `ID2D1Bitmap1` and clear the device context target via `release_backbuffer_resources` to prevent DXGI error 0x887A0001 (outstanding references). A retry is attempted if the first resize fails.

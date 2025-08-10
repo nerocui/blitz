@@ -19,6 +19,7 @@ namespace BlitzWinUI
         void Resize(UInt32 width, UInt32 height, Single scale);
         void RenderOnce();
         void LoadHtml(String html);
+    void SetVerboseLogging(Boolean enabled);
         Boolean TestAttacherConnection(); // Add test method
     }
 }

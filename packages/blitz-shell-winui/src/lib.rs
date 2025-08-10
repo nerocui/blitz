@@ -60,6 +60,7 @@ pub unsafe extern "C" fn blitz_winui_load_html(ptr: *mut winrt_component::BlitzH
         let s = unsafe { std::slice::from_raw_parts(slice, len) };
         if let Ok(html) = std::str::from_utf8(s) {
             host.load_html(html);
+            host.render_once();
         }
     }
 }
@@ -165,8 +166,15 @@ impl IHost_Impl for HostRuntime_Impl {
         let imp = self.get_impl();
         if let Some(inner) = imp.inner.lock().unwrap().as_mut() {
             let s: String = html.to_string();
-            inner.load_html(&s);
+            inner.load_html(&s); // load_html now triggers render_once itself
         }
+        Ok(())
+    }
+
+    fn SetVerboseLogging(&self, enabled: bool) -> windows_core::Result<()> {
+        // Toggle global verbose logging in the D2D backend.
+        anyrender_d2d::set_verbose_logging(enabled);
+        crate::winrt_component::debug_log(&format!("HostRuntime::SetVerboseLogging: enabled={}", enabled));
         Ok(())
     }
 
