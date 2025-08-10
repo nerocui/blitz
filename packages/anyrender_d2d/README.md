@@ -12,6 +12,62 @@ Direct2D backend for the `anyrender` abstraction used by Blitz. It renders direc
 - Basic text drawing (DirectWrite layout) using a default font
 - Approximate box shadow (simple inflated, semi-transparent rect)
 
+## Recent Session Summary (2025-08)
+
+This session focused on stabilizing and extending the Direct2D backend for the WinUI shell pivot:
+
+1. Device & Swapchain: Corrected D3D11 device creation (explicit `D3D11_SDK_VERSION`) and robust DXGI swapchain handling for `SwapChainPanel`.
+2. Logging: Redirected internal diagnostics to `OutputDebugString` for visibility in WinDbg / VS Output window.
+3. Text Rendering Overhaul: Replaced the earlier naive text path accumulation with true DirectWrite glyph run submission (`IDWriteFontFace::DrawGlyphRun` via `ID2D1DeviceContext::DrawGlyphRun`). Introduced a `GlyphRun` scene command storing glyph indices + per‑glyph advances.
+4. Advances Derivation: Derived advances from upstream absolute glyph x positions, preserving shaping decisions made by the layout engine (Parley) instead of reconstructing them heuristically.
+5. Multi-line Handling Attempt: Added (then removed) heuristic line splitting inside the backend. We reverted that change to rely solely on upstream layout line iteration so backend remains a dumb recorder for each glyph run line.
+6. Style Handling Refactor: Began mapping `StyleRef` into a `GlyphRenderStyle` (fill vs stroke). Stroke currently falls back to fill rendering pending proper outline stroking implementation.
+7. Cleanup: Removed legacy `text_format_cache` path and unused code; pruned warnings; consolidated glyph rendering code path.
+8. Enum / Command Evolution: Added `GlyphRun { glyph_indices, advances, origin, size, style }` to the command list.
+
+## Completed (This Session)
+
+- DirectWrite integration (basic font face: Segoe UI; glyph indices rendered correctly).
+- Per-glyph advance handling (spacing fidelity relative to upstream layout data).
+- Command abstraction updated to carry glyph style (fill/stroke placeholder).
+- Removed obsolete text format caching and naive text path code.
+- Logging & swapchain/device creation robustness improvements.
+
+## Remaining TODO (Short Term)
+
+1. Font Selection & Styles: Map `peniko::Font` / CSS style (weight, italic) to `IDWriteFontFace` instances; cache faces keyed by (family, weight, style, stretch).
+2. Stroke Text: Implement outline extraction + stroking (convert glyph run to geometry with `GetGlyphRunOutline`) safely within current windows crate types.
+3. Text Decoration: Underline / strikethrough painting inside backend (currently handled upstream by drawing lines; verify alignment with DWrite metrics for high DPI).
+4. Centering / Alignment: Ensure upstream layout passes correct translated origins for centered flex container; optionally add a transform command if needed to avoid baking translation into glyph origins.
+5. Box Shadow: Replace placeholder inflated rect with Gaussian blur effect pipeline (offscreen bitmap + `ID2D1Effect` GaussianBlur + composite).
+6. Blend Modes: Map `peniko::BlendMode` variants to D2D blend/composite (fallback with logging when unsupported).
+7. Gradient Extend Modes: Support Repeat / Reflect; accurate Sweep gradient emulation.
+8. Resource Lifetime: Add cache eviction (LRU size / count limits) + memory stats.
+9. Device Lost Handling: Detect `D2DERR_RECREATE_TARGET` on `EndDraw` and rebuild device context + caches.
+10. High DPI: Audit pixel vs DIP usage; scale glyph positions & brush transforms appropriately for non‑96 DPI.
+
+## Future Improvements (Longer Term)
+
+- Font Fallback Chain: Implement multi-font fallback and symbol/emoji coverage via custom font collection.
+- Text Shaping Enhancements: Integrate richer shaping (OpenType features, variation axes) beyond basics provided today.
+- Effect Graph: Unified abstraction for future blur, shadows, filters (chain of offscreen passes) instead of ad-hoc blur implementation.
+- Performance Instrumentation: Optional timing overlays & telemetry hooks (scene encoding, playback, present latency).
+- Parallel Recording: Allow multi-thread scene recording segments joined before playback (requires command list segmentation & ordering guarantees).
+- Clip Optimization: Combine consecutive identical clips; detect redundant push/pop pairs.
+- Optional WIC / Image Scaling Quality Modes: Higher quality bitmap resampling (Fant / Cubic) for large downscales.
+
+## Known Limitations (Reiterated)
+
+- Stroke text not yet visually stroked (renders as fill).
+- No real blur for shadows.
+- Limited blend/extend mode coverage.
+- Single default system font (Segoe UI) regardless of requested family.
+- Unbounded caches.
+
+---
+
+Contributions welcome—please keep changes modular and avoid leaking Direct2D types across crate boundaries.
+
 ## Future Iterations / TODO
 
 1. True Gaussian blur via `ID2D1Effect` (GaussianBlur) for box shadows

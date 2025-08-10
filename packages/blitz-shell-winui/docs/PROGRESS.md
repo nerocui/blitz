@@ -24,7 +24,7 @@ Attempting to drive the panel through wgpu required creating a surface without a
 ## Implemented (Rendering – anyrender_d2d)
 - Command set: rectangles (fill/stroke), arbitrary paths (kurbo → ID2D1PathGeometry), push/pop layer (clip), transforms per command.
 - Brushes: solid, linear & radial gradients (sweep approximated via radial + angle fudge), image/bitmap with caching keyed by image hash.
-- Text: DirectWrite layout creation with placeholder glyph mapping (naive shaping).
+- Text: DirectWrite glyph run rendering (replaced earlier placeholder). Stores glyph indices + per‑glyph advances derived from upstream layout (Parley) preserving shaping.
 - Box shadow: placeholder inflated semi-transparent rect (blur effect to come).
 - Resource caching: gradient & image brush caches; text format cache.
 
@@ -38,21 +38,45 @@ Attempting to drive the panel through wgpu required creating a surface without a
 - Blend / composite modes from `peniko::BlendMode` not mapped to D2D yet.
 - Gradient extend / spread modes (pad, repeat, reflect) not fully implemented.
 - Sweep gradient is only approximated.
-- Text shaping & font fallback: currently naive; need proper glyph mapping / shaping pipeline (DirectWrite custom font collection from `peniko::Font`).
+- Text font selection: single default Segoe UI face; weight/italic/style not yet mapped. Stroke style falls back to fill for glyph runs.
 - Device lost / reset handling & cache eviction not implemented.
 - No sample WinUI3 C# host app in repo for manual verification.
 - `anyrender_vello` still present in workspace (not used by this shell) – eventual cleanup / optional feature flag.
 
 ## Next Steps (Prioritized)
-1. Implement real box shadow blur using D2D gaussian blur effect (offscreen target, draw, blur, composite).
-2. Map `peniko::BlendMode` to D2D blend/composite (document unsupported mappings gracefully).
-3. Add gradient extend modes + accurate sweep gradient (convert to angle-based stop interpolation or custom brush).
-4. Text shaping: integrate DirectWrite font collection from in-memory font data; proper glyph mapping & fallback.
-5. Device lost handling: detect DXGI/D2D device recreation; rebuild dependent caches.
-6. Introduce cache eviction & memory stats (images, geometries, brushes).
-7. Provide WinUI3 example app (C#) demonstrating initialization, resize, input, and render loop.
-8. Harden build script quoting & add CI job that ensures midlrt presence (or validates skip path).
-9. Optional: remove or feature-gate legacy `anyrender_vello` from the shell crate dependencies.
+1. Proper box shadow blur (`ID2D1Effect::GaussianBlur`).
+2. Blend/composite mode mapping for `peniko::BlendMode`.
+3. Gradient extend modes (Repeat / Reflect) + accurate Sweep gradient.
+4. Font face selection & caching (family, weight, stretch, style) + fallback chain.
+5. Glyph stroking (outline extraction) honoring stroke width & joins.
+6. Device lost handling (recreate context + invalidate caches).
+7. Cache eviction policy (LRU) & diagnostics (memory usage, counts).
+8. WinUI3 sample host app (usage & manual testing).
+9. Build script hardening + CI validation for WinMD generation path.
+10. Feature-gate or slim unused backends (`anyrender_vello*`) for shell builds.
+11. High DPI correctness (scale metrics, transforms, pixel snapping heuristics).
+
+## Session Progress Summary (Aug 2025)
+
+Recent development concentrated on text rendering correctness and backend hygiene:
+
+- Corrected D3D11 device creation signature and swapchain acquisition flow.
+- Added debugger logging via `OutputDebugString` wrapper for early device/swapchain diagnostics.
+- Introduced `GlyphRun` scene command carrying glyph indices, advances, origin, size, and style.
+- Integrated DirectWrite glyph run rendering (removed naive path accumulation text approach).
+- Derived glyph advances from upstream layout absolute positions to maintain shaping spacing fidelity.
+- Experimented with heuristic multi-line splitting inside backend; reverted to trusting upstream line segmentation (Parley) to avoid backend duplicating layout logic.
+- Added style mapping scaffold (`GlyphRenderStyle` fill/stroke); stroke currently renders as fill pending outline support.
+- Removed obsolete `text_format_cache` and associated dead code.
+- Cleaned warnings and stabilized build after enum evolution.
+
+## Newly Identified Follow-ups
+
+- Implement outline-based stroke text (geometry generation + stroke drawing).
+- Introduce transform command or batched transform stack to avoid baking translation into glyph origins for future animations.
+- Provide detailed metrics test rendering (baseline, ascent/descent overlays) for debugging typography.
+
+---
 
 ## Decision Log (Key Points)
 - Pivoted from wgpu/Vello to Direct2D due to lack of HWND + desire to avoid custom swapchain mediation.
