@@ -209,8 +209,15 @@ pub(crate) fn style(
             },
         })
         .unwrap_or_else(|| "".into());
+    // Extract background color for inline elements (resolve GenericColor -> AbsoluteColor -> SRGB)
+    let current_color = style.clone_color();
+    let bg_color = style
+        .get_background()
+        .background_color
+        .resolve_to_absolute(&current_color)
+        .as_color_color();
+    let bg_brush = (bg_color.components[3] > 0.0).then(|| peniko::Brush::Solid(bg_color));
     parley::TextStyle {
-        // font_stack: parley::FontStack::Single(FontFamily::Generic(GenericFamily::SystemUi)),
         font_stack: parley::FontStack::List(Cow::Owned(families)),
         font_size,
         font_width,
@@ -219,7 +226,7 @@ pub(crate) fn style(
         font_variations: parley::FontSettings::List(Cow::Owned(font_variations)),
         font_features: parley::FontSettings::List(Cow::Borrowed(&[])),
         locale: Default::default(),
-    brush: TextBrush::from_id_color_weight_family(span_id, color, css_weight as u16, primary_family),
+        brush: TextBrush::from_id_color_weight_family(span_id, color, css_weight as u16, primary_family).with_background(bg_brush),
         has_underline: text_decoration_line.contains(TextDecorationLine::UNDERLINE),
         underline_offset: Default::default(),
         underline_size: Default::default(),

@@ -532,6 +532,8 @@ pub struct TextBrush {
     pub id: usize,
     /// Peniko brush for the span (represents text color)
     pub brush: peniko::Brush,
+    /// Optional background color for the inline span
+    pub background: Option<peniko::Brush>,
     /// CSS numeric font weight (100..900); 400 normal.
     pub weight: u16,
     /// Primary font family (first specified or generic keyword like "monospace")
@@ -539,18 +541,30 @@ pub struct TextBrush {
 }
 
 impl Default for TextBrush {
-    fn default() -> Self { Self { id: 0, brush: peniko::Brush::Solid(peniko::Color::BLACK), weight: 400, family: std::sync::Arc::from("") } }
+    fn default() -> Self {
+        Self {
+            id: 0,
+            brush: peniko::Brush::Solid(peniko::Color::BLACK),
+            background: None,
+            weight: 400,
+            family: std::sync::Arc::from("")
+        }
+    }
 }
 
 impl TextBrush {
     pub(crate) fn from_peniko_brush(brush: peniko::Brush) -> Self {
-        Self { id: 0, brush, weight: 400, family: std::sync::Arc::from("") }
+        Self { id: 0, brush, background: None, weight: 400, family: std::sync::Arc::from("") }
     }
     pub(crate) fn from_color(color: AlphaColor<Srgb>) -> Self {
         Self::from_peniko_brush(peniko::Brush::Solid(color))
     }
     pub(crate) fn from_id_color_weight_family(id: usize, color: AlphaColor<Srgb>, weight: u16, family: std::sync::Arc<str>) -> Self {
-        Self { id, brush: peniko::Brush::Solid(color), weight, family }
+        Self { id, brush: peniko::Brush::Solid(color), background: None, weight, family }
+    }
+    pub(crate) fn with_background(mut self, background: Option<peniko::Brush>) -> Self {
+        self.background = background;
+        self
     }
 }
 

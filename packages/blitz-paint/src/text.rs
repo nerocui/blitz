@@ -29,6 +29,25 @@ pub(crate) fn stroke_text<'a>(
 
                 // Use weight propagated via TextBrush; treat 0 as normal (400)
                 let weight: u16 = if style.brush.weight == 0 { 400 } else { style.brush.weight };
+                // Draw background rect for inline background if present
+                if let Some(bg_brush) = &style.brush.background {
+                    // Only handle solid color backgrounds for now
+                    if let peniko::Brush::Solid(color) = bg_brush {
+                        if color.components[3] > 0.0 {
+                            let rect = kurbo::Rect::from_origin_size(
+                                (glyph_run.offset() as f64, (glyph_run.baseline() - metrics.ascent) as f64),
+                                (glyph_run.advance() as f64, metrics.ascent as f64 + metrics.descent as f64)
+                            );
+                            scene.fill(
+                                Fill::NonZero,
+                                transform,
+                                *color,
+                                None,
+                                &rect,
+                            );
+                        }
+                    }
+                }
                 scene.draw_glyphs(
                     font,
                     &style.brush.family,
