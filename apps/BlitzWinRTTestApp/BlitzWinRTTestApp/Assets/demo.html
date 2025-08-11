@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Blitz Demo (Assets)</title>
+  <style>
+    :root { --bg1:#ff5f6d; --bg2:#ffc371; }
+    body {
+      background: linear-gradient(135deg, var(--bg1), var(--bg2));
+      color:#fff;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      margin:0; padding:32px 32px 128px; box-sizing:border-box; min-height:100vh;
+    }
+    h1 { font-size:48px; margin:0 0 4px; text-shadow:2px 2px 4px rgba(0,0,0,.35); }
+    p.lead { font-size:20px; margin:0 0 32px; max-width:760px; }
+    .families { display:flex; flex-wrap:wrap; gap:32px; margin-bottom:48px; }
+    .families div { background:rgba(255,255,255,.15); padding:12px 16px; border-radius:12px; min-width:220px; backdrop-filter:blur(4px); }
+    .families h3 { margin:0 0 8px; font-size:14px; letter-spacing:.5px; text-transform:uppercase; font-weight:600; }
+    .families p { margin:4px 0; font-size:14px; line-height:1.25; }
+    .fw span { display:block; }
+    .fw .w100 { font-weight:100; }
+    .fw .w200 { font-weight:200; }
+    .fw .w300 { font-weight:300; }
+    .fw .w400 { font-weight:400; }
+    .fw .w500 { font-weight:500; }
+    .fw .w600 { font-weight:600; }
+    .fw .w700 { font-weight:700; }
+    .fw .w800 { font-weight:800; }
+    .fw .w900 { font-weight:900; }
+    .shadow-grid { display:flex; flex-wrap:wrap; gap:28px; max-width:1200px; }
+    .shadow { width:200px; height:120px; padding:12px 14px; border-radius:12px; background:#fff; color:#222; display:flex; flex-direction:column; justify-content:flex-end; font-size:14px; position:relative; box-sizing:border-box; }
+    .shadow span { font-size:11px; opacity:.65; line-height:1.2; }
+    .s1 { box-shadow: 0 2px 4px rgba(0,0,0,.25); }
+    .s2 { box-shadow: 0 4px 12px rgba(0,0,0,.30); }
+    .s3 { box-shadow: 0 8px 24px rgba(0,0,0,.30); }
+    .s4 { box-shadow: 0 12px 32px rgba(0,0,0,.35), 0 2px 4px rgba(0,0,0,.2); }
+    .s5 { box-shadow: 0 0 0 1px rgba(0,0,0,.05), 0 16px 48px -8px rgba(0,0,0,.45); }
+    .inset { box-shadow: inset 0 0 8px rgba(0,0,0,.35); background:#fafafa; }
+    .c1 { box-shadow: 0 10px 30px -5px rgba(255,95,109,0.55); }
+    .c2 { box-shadow: 0 10px 40px -4px rgba(60,140,255,0.55); }
+    footer { position:fixed; bottom:12px; left:0; right:0; text-align:center; font-size:12px; opacity:.7; }
+    code { background:rgba(255,255,255,.2); padding:2px 4px; border-radius:4px; }
+    .mono { font-family: Consolas, 'Courier New', monospace; }
+    .serif { font-family: Georgia, 'Times New Roman', serif; }
+    .emoji { font-family: 'Segoe UI Emoji', 'Segoe UI Symbol', emoji; }
+  </style>
+</head>
+<body>
+  <h1>Blitz WinUI Integration</h1>
+  <p class="lead">SwapChainPanel + Direct2D backend. External HTML loaded from <code>Assets/demo.html</code>.</p>
+  <div class="families">
+    <div class="fw">
+      <h3>Font Weights</h3>
+      <span class="w100">Weight 100 Thin</span>
+      <span class="w200">Weight 200 ExtraLight</span>
+      <span class="w300">Weight 300 Light</span>
+      <span class="w400">Weight 400 Normal</span>
+      <span class="w500">Weight 500 Medium</span>
+      <span class="w600">Weight 600 SemiBold</span>
+      <span class="w700">Weight 700 Bold</span>
+      <span class="w800">Weight 800 ExtraBold</span>
+      <span class="w900">Weight 900 Black</span>
+    </div>
+    <div>
+      <h3>Families</h3>
+      <p class="mono">Monospace sample 123 var(x)</p>
+      <p class="serif">Serif paragraph: The quick brown fox jumps over the lazy dog.</p>
+      <p class="emoji">Emoji: 😃🔥🚀✨📦🧪</p>
+    </div>
+  </div>
+  <div class="shadow-grid">
+    <div class="shadow s1"><strong>shadow 1</strong><span>0 2px 4px</span></div>
+    <div class="shadow s2"><strong>shadow 2</strong><span>0 4px 12px</span></div>
+    <div class="shadow s3"><strong>shadow 3</strong><span>0 8px 24px</span></div>
+    <div class="shadow s4"><strong>layered</strong><span>0 12px 32px, 0 2px 4px</span></div>
+    <div class="shadow s5"><strong>elevated</strong><span>ring + deep</span></div>
+    <div class="shadow inset"><strong>inset</strong><span>inset 0 0 8px</span></div>
+    <div class="shadow c1"><strong>warm</strong><span>colored glow</span></div>
+    <div class="shadow c2"><strong>cool</strong><span>colored glow</span></div>
+  </div>
+  <footer>Modify Assets/demo.html and save to hot-reload via app restart.</footer>
+</body>
+</html>

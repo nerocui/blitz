@@ -9,7 +9,7 @@ Direct2D backend for the `anyrender` abstraction used by Blitz. It renders direc
 - Image drawing with bitmap caching
 - Layers via axis‑aligned clip stack (Push/PopLayer)
 - Per‑command baked translation transforms
-- DirectWrite glyph run submission (Segoe UI default font) with per‑glyph advances, fill and (future) stroke styles
+- DirectWrite glyph run submission with per‑glyph advances (primary family + weight selection via DirectWrite font face cache; generic families mapped to system fonts; stroke outline path scaffolding present)
 - True Gaussian blur box shadows (outset & inset) via D2D GaussianBlur effect, temporary device contexts (no mid-frame target retarget), rounded corner support, bitmap cache (LRU heuristics WIP)
 - Border radius respected for fills, strokes, and shadows
 - Runtime‑controllable verbose diagnostics (disabled by default)
@@ -51,22 +51,39 @@ The codebase has been cleaned so that only necessary logs remain by default; dee
 
 ## Remaining TODO (Short Term)
 
-1. Font selection & style mapping (family / weight / stretch / italic) with font face cache.
-2. Text stroke (glyph outlines via `GetGlyphRunOutline`) & text decorations.
-3. Blend / composite mode mapping (peniko::BlendMode -> D2D1_COMPOSITE_MODE / blend state) with graceful fallbacks.
-4. Gradient extend modes (Repeat / Reflect) and improved sweep / true angular gradient.
-5. Cache policies & stats: gradient/image/shadow cache eviction & sizing heuristics.
-6. Device lost handling (`D2DERR_RECREATE_TARGET`) plus resource reinit path.
-7. High DPI audit (DIP vs pixel consistency for glyph origins & shadow padding).
-8. Optional performance / telemetry hooks (encode, playback, blur timings).
-9. Shadow spread / inner spread parameterization (current blur only, no spread expansion/contraction controls).
-10. Complete adoption of `vlog!` macro (eliminate residual direct `VERBOSE_LOG` checks if any) & resolve lingering compiler warnings (dead variants, unused assignments).
-11. Basic unit tests: geometry figure closure, shadow cache hit path, glyph advance preservation.
+1. Font style completeness
+   - Italic propagation (currently always normal) and stretch mapping into `FontKey`.
+   - Multi‑family fallback chain (iterate full CSS family list instead of first only).
+   - Per‑glyph fallback for missing codepoints (emoji/symbol coverage, generic `emoji` mapping).
+2. Text stroke & outline
+   - Finalize glyph outline extraction & stroke rendering path (fallback currently fills).
+   - Proper decoration metrics adjustment (avoid descender collisions; thickness scaling by weight).
+3. Blend / composite mode mapping (peniko::BlendMode -> `D2D1_PRIMITIVE_BLEND` / composite) with graceful fallbacks.
+4. Gradient extend modes (Repeat / Reflect) + improved sweep / true angular gradient implementation.
+5. Variable fonts
+   - Wire variation axis (`var_coords`) plumbing; map CSS `font-variation-settings` into DirectWrite axis values.
+6. Cache policies & stats
+   - LRU / size limits for gradient, image, shadow, and font face caches (current caches unbounded).
+   - Basic telemetry counters (cache hits/misses, shadow reuse).
+7. Device lost handling (`D2DERR_RECREATE_TARGET`) + resource re‑init path & cache repopulation strategy.
+8. High DPI audit (DIP vs pixel alignment for glyph baselines, shadow extents, blur padding rounding).
+9. Performance / telemetry hooks (encode + playback + blur timings; optional logging channel).
+10. Shadow spread / inner spread controls (current: pure Gaussian blur of mask only).
+11. Logging polish
+    - Replace any remaining ad‑hoc logs with `vlog!` or structured one‑shot diagnostics.
+12. Tests
+    - Geometry figure closure regression test.
+    - Shadow cache reuse test (same rect/radius/std_dev produces single blur computation).
+    - Glyph advance preservation & weight/family selection.
+13. @font-face / custom font loading (private font collection + memory loader).
+14. Fallback heuristics logging (one‑time per (family, weight, style) miss to aid debugging).
+15. Optional synthetic emboldening / oblique when requested style not available.
+16. Remove or implement variable coord storage (currently `var_coords` unused -> consider wiring once variable fonts active).
 
 ## Future Improvements (Longer Term)
 
-- Font Fallback Chain: Implement multi-font fallback and symbol/emoji coverage via custom font collection.
-- Text Shaping Enhancements: Integrate richer shaping (OpenType features, variation axes) beyond basics provided today.
+- Font Fallback Chain: Multi-font fallback & emoji coverage (custom DirectWrite collection or composite lookup).
+- Text Shaping Enhancements: Rich OpenType feature control & variation axis application.
 - Effect Graph: Unified abstraction for future blur, shadows, filters (chain of offscreen passes) instead of ad-hoc blur implementation.
 - Performance Instrumentation: Optional timing overlays & telemetry hooks (scene encoding, playback, present latency).
 - Parallel Recording: Allow multi-thread scene recording segments joined before playback (requires command list segmentation & ordering guarantees).
@@ -77,7 +94,9 @@ The codebase has been cleaned so that only necessary logs remain by default; dee
 
 - Stroke text not yet visually stroked (renders as fill only).
 - Limited blend / extend mode coverage.
-- Single default system font (Segoe UI) regardless of requested family.
+- Single‑family selection only (uses first CSS family; no per‑glyph fallback yet).
+- Italic & stretch ignored (always normal).
+- Variable font axes ignored (var_coords placeholder only).
 - Caches (gradient / image / shadow) lack eviction policy.
 - Sweep gradient still approximation.
 - No explicit shadow spread control (only Gaussian blur sigma).
