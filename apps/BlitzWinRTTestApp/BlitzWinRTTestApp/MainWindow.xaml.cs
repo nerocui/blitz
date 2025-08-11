@@ -71,8 +71,8 @@ namespace BlitzWinRTTestApp
             LogMessages("BlitzPanel_Loaded: Starting panel initialization");
             
             var scale = (float)BlitzPanel.XamlRoot.RasterizationScale;
-            var width = (uint)Math.Max(1, BlitzPanel.ActualWidth * scale);
-            var height = (uint)Math.Max(1, BlitzPanel.ActualHeight * scale);
+            var width = (uint)Math.Max(1, BlitzPanel.ActualWidth);
+            var height = (uint)Math.Max(1, BlitzPanel.ActualHeight);
             
             LogMessages($"BlitzPanel_Loaded: Panel size: {width}x{height}, scale: {scale}");
 
@@ -155,8 +155,8 @@ namespace BlitzWinRTTestApp
             if (_host is null) return;
             
             var scale = (float)BlitzPanel.XamlRoot.RasterizationScale;
-            var width = (uint)Math.Max(1, e.NewSize.Width * scale);
-            var height = (uint)Math.Max(1, e.NewSize.Height * scale);
+            var width = (uint)Math.Max(1, e.NewSize.Width);
+            var height = (uint)Math.Max(1, e.NewSize.Height);
             
             LogMessages($"BlitzPanel_SizeChanged: Resizing to {width}x{height}, scale: {scale}");
             _host.Resize(width, height, scale);
