@@ -32,6 +32,20 @@ use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::System::Diagnostics::Debug::OutputDebugStringA;
 use windows::core::PCSTR;
+use std::hash::{Hash, Hasher};
+
+// Cache key for blurred shadow bitmaps (quantized params to limit variety)
+#[derive(Clone, Copy, Eq)]
+struct ShadowKey {
+    w: u32,
+    h: u32,
+    radius_q: u16,
+    stddev_q: u16,
+    rgba: u32, // packed
+}
+impl PartialEq for ShadowKey { fn eq(&self, other: &Self) -> bool { self.w==other.w && self.h==other.h && self.radius_q==other.radius_q && self.stddev_q==other.stddev_q && self.rgba==other.rgba } }
+impl Hash for ShadowKey { fn hash<H: Hasher>(&self, state: &mut H) { state.write_u32(self.w); state.write_u32(self.h); state.write_u16(self.radius_q); state.write_u16(self.stddev_q); state.write_u32(self.rgba); } }
+impl ShadowKey { fn new(rect: &Rect, radius: f64, std_dev: f64, color: Color) -> Self { let w = rect.width().round().max(0.0) as u32; let h = rect.height().round().max(0.0) as u32; let radius_q = (radius.clamp(0.0,655.0)*100.0).round() as u16; let stddev_q = (std_dev.clamp(0.0,655.0)*100.0).round() as u16; let r = (color.components[0].clamp(0.0,1.0)*255.0).round() as u8; let g=(color.components[1].clamp(0.0,1.0)*255.0).round() as u8; let b=(color.components[2].clamp(0.0,1.0)*255.0).round() as u8; let a=(color.components[3].clamp(0.0,1.0)*255.0).round() as u8; let rgba = u32::from_le_bytes([r,g,b,a]); ShadowKey { w,h,radius_q,stddev_q,rgba } } }
 
 // NOTE: Do not rely on HWND in WinUI shell path
 
@@ -46,7 +60,7 @@ enum Command {
     StrokeRect { rect: Rect, brush: RecordedBrush, width: f64 },
     FillPath { path: Vec<PathEl>, brush: RecordedBrush },
     StrokePath { path: Vec<PathEl>, brush: RecordedBrush, width: f64 },
-    BoxShadow { rect: Rect, color: Color, radius: f64, std_dev: f64 },
+    BoxShadow { rect: Rect, color: Color, radius: f64, std_dev: f64, inset: bool },
     // Store raw glyph indices + per-glyph advances + origin (baseline start). Advances derived
     // from provided absolute x positions so we maintain original shaping/spacing from layout.
     GlyphRun { glyph_indices: Vec<u16>, advances: Vec<f32>, origin: (f32,f32), size: f32, style: GlyphRenderStyle },
@@ -102,37 +116,73 @@ pub fn set_verbose_logging(enabled: bool) { VERBOSE_LOG.store(enabled, Ordering:
 
 impl<'a> PaintScene for D2DScenePainter<'a> {
     fn reset(&mut self) { self.scene.reset(); }
-    fn push_layer(&mut self, _blend: impl Into<BlendMode>, _alpha: f32, _transform: Affine, clip: &impl Shape) {
-        // Simplify: only rectangular clips supported for now
-        if let Some(rect) = shape_as_rect(clip) {
+    fn push_layer(&mut self, _blend: impl Into<BlendMode>, _alpha: f32, transform: Affine, clip: &impl Shape) {
+        // Only rectangular clips supported for now; approximate by bounding box + translation.
+        if let Some(mut rect) = shape_as_rect(clip) {
+            let t = transform.as_coeffs();
+            // If transform is (approximately) a pure translation, bake it into the rect.
+            if t[0] == 1.0 && t[1] == 0.0 && t[2] == 0.0 && t[3] == 1.0 {
+                rect = rect + kurbo::Vec2::new(t[4], t[5]);
+            }
             self.scene.commands.push(Command::PushLayer { rect });
         }
     }
     fn pop_layer(&mut self) { self.scene.commands.push(Command::PopLayer); }
-    fn stroke<'b>(&mut self, style: &Stroke, _transform: Affine, brush: impl Into<BrushRef<'b>>, _brush_transform: Option<Affine>, shape: &impl Shape) {
-        // Prefer rect fast path; otherwise record path elements
-        if let Some(rect) = shape_as_rect(shape) {
-            let brush_rec = record_brush(brush.into());
-            self.scene.commands.push(Command::StrokeRect { rect, brush: brush_rec, width: style.width });
-        } else {
-            let brush_rec = record_brush(brush.into());
-            let mut v = Vec::new();
-            shape_to_path_elements(shape, &mut v);
-            self.scene.commands.push(Command::StrokePath { path: v, brush: brush_rec, width: style.width });
+    fn stroke<'b>(&mut self, style: &Stroke, transform: Affine, brush: impl Into<BrushRef<'b>>, _brush_transform: Option<Affine>, shape: &impl Shape) {
+        let brush_rec = record_brush(brush.into());
+        // Try rect fast path only if transform is pure translation.
+        if let Some(mut rect) = shape_as_rect(shape) {
+            let t = transform.as_coeffs();
+            if t[0] == 1.0 && t[1] == 0.0 && t[2] == 0.0 && t[3] == 1.0 {
+                rect = rect + kurbo::Vec2::new(t[4], t[5]);
+                self.scene.commands.push(Command::StrokeRect { rect, brush: brush_rec, width: style.width });
+                return;
+            }
         }
+        // Fallback: record full path with translation baked in (ignore non-translation components for now).
+        let mut v = Vec::new();
+        shape_to_path_elements(shape, &mut v);
+        let t = transform.as_coeffs();
+        if t[4] != 0.0 || t[5] != 0.0 {
+            for el in &mut v {
+                match el {
+                    PathEl::MoveTo(p) | PathEl::LineTo(p) => { p.x += t[4]; p.y += t[5]; }
+                    PathEl::QuadTo(p1, p2) => { p1.x += t[4]; p1.y += t[5]; p2.x += t[4]; p2.y += t[5]; }
+                    PathEl::CurveTo(p1, p2, p3) => { p1.x += t[4]; p1.y += t[5]; p2.x += t[4]; p2.y += t[5]; p3.x += t[4]; p3.y += t[5]; }
+                    PathEl::ClosePath => {}
+                }
+            }
+        }
+        self.scene.commands.push(Command::StrokePath { path: v, brush: brush_rec, width: style.width });
     }
-    fn fill<'b>(&mut self, _style: Fill, _transform: Affine, brush: impl Into<anyrender::Paint<'b>>, _brush_transform: Option<Affine>, shape: &impl Shape) {
-        if let Some(rect) = shape_as_rect(shape) {
-            let brush_rec = record_paint(brush.into());
-            self.scene.commands.push(Command::FillRect { rect, brush: brush_rec });
-        } else {
-            let brush_rec = record_paint(brush.into());
-            let mut v = Vec::new();
-            shape_to_path_elements(shape, &mut v);
-            self.scene.commands.push(Command::FillPath { path: v, brush: brush_rec });
+    fn fill<'b>(&mut self, _style: Fill, transform: Affine, brush: impl Into<anyrender::Paint<'b>>, _brush_transform: Option<Affine>, shape: &impl Shape) {
+        let brush_rec = record_paint(brush.into());
+        // Rect fast path if pure translation only.
+        if let Some(mut rect) = shape_as_rect(shape) {
+            let t = transform.as_coeffs();
+            if t[0] == 1.0 && t[1] == 0.0 && t[2] == 0.0 && t[3] == 1.0 {
+                rect = rect + kurbo::Vec2::new(t[4], t[5]);
+                self.scene.commands.push(Command::FillRect { rect, brush: brush_rec });
+                if self.scene.commands.len() == 1 { debug_log_d2d("D2DScenePainter: first command recorded (kind=FillRect) - painting pipeline active"); }
+                return;
+            }
         }
+        let mut v = Vec::new();
+        shape_to_path_elements(shape, &mut v);
+        let t = transform.as_coeffs();
+        if t[4] != 0.0 || t[5] != 0.0 {
+            for el in &mut v {
+                match el {
+                    PathEl::MoveTo(p) | PathEl::LineTo(p) => { p.x += t[4]; p.y += t[5]; }
+                    PathEl::QuadTo(p1, p2) => { p1.x += t[4]; p1.y += t[5]; p2.x += t[4]; p2.y += t[5]; }
+                    PathEl::CurveTo(p1, p2, p3) => { p1.x += t[4]; p1.y += t[5]; p2.x += t[4]; p2.y += t[5]; p3.x += t[4]; p3.y += t[5]; }
+                    PathEl::ClosePath => {}
+                }
+            }
+        }
+        self.scene.commands.push(Command::FillPath { path: v, brush: brush_rec });
         if self.scene.commands.len() == 1 {
-            debug_log_d2d("D2DScenePainter: first command recorded (kind=Fill/Stroke) - painting pipeline active");
+            debug_log_d2d("D2DScenePainter: first command recorded (kind=FillPath) - painting pipeline active");
         }
     }
     fn draw_glyphs<'b, 's: 'b>(&'s mut self, _font: &'b Font, font_size: f32, _hint: bool, _norm: &'b [NormalizedCoord], style: impl Into<StyleRef<'b>>, brush: impl Into<BrushRef<'b>>, brush_alpha: f32, transform: Affine, _glyph_transform: Option<Affine>, glyphs: impl Iterator<Item = Glyph>) {
@@ -172,7 +222,9 @@ impl<'a> PaintScene for D2DScenePainter<'a> {
         let tx = coeffs[4];
         let ty = coeffs[5];
         let translated = rect + kurbo::Vec2::new(tx, ty);
-        self.scene.commands.push(Command::BoxShadow { rect: translated, color: brush, radius, std_dev });
+        let inset = std_dev < 0.0;
+        let std_dev = std_dev.abs();
+        self.scene.commands.push(Command::BoxShadow { rect: translated, color: brush, radius, std_dev, inset });
     }
 }
 
@@ -211,6 +263,10 @@ pub struct D2DWindowRenderer {
     // caches
     gradient_cache: FxHashMap<u64, ID2D1Brush>,
     image_cache: FxHashMap<u64, ID2D1Bitmap>,
+    // shadow blur cache (bitmap of blurred rounded rect); separate from image_cache to control eviction separately
+    shadow_cache: FxHashMap<ShadowKey, ID2D1Bitmap1>,
+    shadow_cache_order: std::collections::VecDeque<ShadowKey>,
+    gaussian_blur_effect: Option<ID2D1Effect>,
     scene: D2DScene,
     width: u32,
     height: u32,
@@ -221,7 +277,7 @@ pub struct D2DWindowRenderer {
 }
 
 impl D2DWindowRenderer {
-    pub fn new() -> Self { Self { swapchain: None, d3d_device: None, d2d_factory: None, d2d_device: None, d2d_ctx: None, dwrite_factory: None, dwrite_font_face: None, gradient_cache: FxHashMap::default(), image_cache: FxHashMap::default(), scene: D2DScene::default(), width: 1, height: 1, active: false, debug_shadow_logs: 0, last_command_count: 0, backbuffer_bitmap: None } }
+    pub fn new() -> Self { Self { swapchain: None, d3d_device: None, d2d_factory: None, d2d_device: None, d2d_ctx: None, dwrite_factory: None, dwrite_font_face: None, gradient_cache: FxHashMap::default(), image_cache: FxHashMap::default(), shadow_cache: FxHashMap::default(), shadow_cache_order: std::collections::VecDeque::new(), gaussian_blur_effect: None, scene: D2DScene::default(), width: 1, height: 1, active: false, debug_shadow_logs: 0, last_command_count: 0, backbuffer_bitmap: None } }
 
     pub fn last_command_count(&self) -> u32 { self.last_command_count }
 
@@ -304,7 +360,7 @@ impl D2DWindowRenderer {
                 pixelFormat: D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED },
                 dpiX: dpi_x, dpiY: dpi_y,
                 bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET,
-                colorContext: std::mem::ManuallyDrop::new(None),
+                colorContext: std::mem::ManuallyDrop::new(None::<ID2D1ColorContext>),
             };
             let attempt_ctx = ctx.CreateBitmapFromDxgiSurface(surface, Some(&props_ctx));
             match attempt_ctx {
@@ -320,7 +376,7 @@ impl D2DWindowRenderer {
                 pixelFormat: D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED },
                 dpiX: 96.0, dpiY: 96.0,
                 bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET,
-                colorContext: std::mem::ManuallyDrop::new(None),
+                colorContext: std::mem::ManuallyDrop::new(None::<ID2D1ColorContext>),
             };
             match ctx.CreateBitmapFromDxgiSurface(surface, Some(&props_96)) {
                 Ok(bmp3) => { debug_log_d2d("recreate_backbuffer_bitmap: created with 96dpi fallback props"); self.backbuffer_bitmap = Some(bmp3); true }
@@ -391,17 +447,18 @@ impl D2DWindowRenderer {
                         let _ = ctx.PushAxisAlignedClip(&r, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
                     }
                     Command::PopLayer => { ctx.PopAxisAlignedClip(); }
-                    Command::BoxShadow { rect, color, radius, std_dev } => {
-                        // Temporary debug: log first few shadows to stderr so we can verify coordinates.
+            Command::BoxShadow { rect, color, radius, std_dev, inset } => {
                         if self.debug_shadow_logs < 16 {
                             debug_log_d2d(&format!(
-                                "D2D BoxShadow rect=({}, {}, {}, {}) radius={} sd={} color rgba=({:.3},{:.3},{:.3},{:.3})",
-                                rect.x0, rect.y0, rect.x1, rect.y1, radius, std_dev,
+                "D2D BoxShadow{} rect=({}, {}, {}, {}) radius={} sd={} color rgba=({:.3},{:.3},{:.3},{:.3})",
+                if inset { "(inset)" } else { "" },
+                rect.x0, rect.y0, rect.x1, rect.y1, radius, std_dev,
                                 color.components[0], color.components[1], color.components[2], color.components[3]
                             ));
                             self.debug_shadow_logs += 1;
                         }
-                        self.draw_gaussian_box_shadow(&ctx, rect, color, radius, std_dev);
+            if inset { self.draw_inset_gaussian_box_shadow(&ctx, rect, color, radius, std_dev); }
+            else { self.draw_gaussian_box_shadow(&ctx, rect, color, radius, std_dev); }
                     }
                     Command::GlyphRun { glyph_indices, advances, origin, size, style } => {
                         if let Some(face) = &self.dwrite_font_face {
@@ -553,21 +610,179 @@ impl D2DWindowRenderer {
         }
     }
 
-    fn draw_gaussian_box_shadow(&mut self, ctx: &ID2D1DeviceContext, rect: Rect, color: Color, radius: f64, _std_dev: f64) {
-        // Temporary simplified shadow: draw a single rounded (if radius>0) translucent expanded rect.
+    fn draw_gaussian_box_shadow(&mut self, ctx: &ID2D1DeviceContext, rect: Rect, color: Color, radius: f64, std_dev: f64) {
+        // Clamp / sanitize inputs
+        if rect.width() <= 0.0 || rect.height() <= 0.0 { return; }
+        let std_dev = std_dev.clamp(0.5, 200.0);
+        let corner_radius = radius.max(0.0);
+        // Determine padding (rough heuristic similar to Vello: 2.5 * std_dev)
+        let pad = (std_dev * 2.5).ceil().max(1.0);
+        let key = ShadowKey::new(&rect, corner_radius, std_dev, color);
+        // Try cache
+        if let Some(bmp) = self.shadow_cache.get(&key) {
+            self.blit_cached_shadow(ctx, bmp, &rect, pad as f32);
+            return;
+        }
+        // Create offscreen target sized to rect + padding both sides
+        let ow = (rect.width() + pad * 2.0).ceil().max(1.0) as u32;
+        let oh = (rect.height() + pad * 2.0).ceil().max(1.0) as u32;
+        if ow == 0 || oh == 0 { return; }
         unsafe {
-            let alpha_color = color.with_alpha(color.components[3] * 0.35);
-            let brush = self.create_solid_brush(alpha_color);
-            let expand = 4.0_f32; // fixed feather
-            let base_rect = D2D_RECT_F { left: rect.x0 as f32 - expand, top: rect.y0 as f32 - expand, right: rect.x1 as f32 + expand, bottom: rect.y1 as f32 + expand };
-            if radius > 0.0 {
-                let r = radius.min((rect.width()*0.5).min(rect.height()*0.5)) as f32;
-                let rr = D2D1_ROUNDED_RECT { rect: base_rect, radiusX: r + expand, radiusY: r + expand };
-                let _ = ctx.FillRoundedRectangle(&rr, &brush);
+            // Lazily create blur effect
+            if self.gaussian_blur_effect.is_none() {
+                if let Ok(effect) = ctx.CreateEffect(&CLSID_D2D1GaussianBlur) { self.gaussian_blur_effect = Some(effect); }
+            }
+            // Offscreen bitmap properties (premultiplied BGRA)
+            let pf = D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED };
+            let bp = D2D1_BITMAP_PROPERTIES1 { pixelFormat: pf, dpiX: 96.0, dpiY: 96.0, bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET, colorContext: std::mem::ManuallyDrop::new(None) };
+            let size = D2D_SIZE_U { width: ow, height: oh };
+            let offscreen = match ctx.CreateBitmap(size, None, 0, &bp) { Ok(b) => b, Err(_) => return };
+            let prev_target_res = ctx.GetTarget();
+            ctx.SetTarget(&offscreen);
+            // Clear to transparent by filling
+            let clear = self.create_solid_brush(Color::TRANSPARENT);
+            let full = D2D_RECT_F { left: 0.0, top: 0.0, right: ow as f32, bottom: oh as f32 };
+            ctx.FillRectangle(&full, &clear);
+            // Draw solid rounded rect (unblurred) offset by padding
+            let solid_brush = self.create_solid_brush(color);
+            let local_rect = D2D_RECT_F { left: pad as f32, top: pad as f32, right: pad as f32 + rect.width() as f32, bottom: pad as f32 + rect.height() as f32 };
+            if corner_radius > 0.0 {
+                let r_clamped = corner_radius.min((rect.width()*0.5).min(rect.height()*0.5)) as f32;
+                let rr = D2D1_ROUNDED_RECT { rect: local_rect, radiusX: r_clamped, radiusY: r_clamped };
+                ctx.FillRoundedRectangle(&rr, &solid_brush);
             } else {
-                let _ = ctx.FillRectangle(&base_rect, &brush);
+                ctx.FillRectangle(&local_rect, &solid_brush);
+            }
+            // Restore original target before drawing shadow output.
+            match prev_target_res { Ok(img) => { ctx.SetTarget(&img); }, Err(_) => { ctx.SetTarget(None::<&ID2D1Image>); } };
+            // Apply Gaussian blur effect: Feed offscreen -> blur -> draw to original target.
+            if let Some(effect) = &self.gaussian_blur_effect {
+                effect.SetInput(0, &offscreen, true);
+                let sigma = std_dev as f32; // Direct2D uses standard deviation
+                // SetValue expects raw bytes; provide proper property types
+                let sigma_bytes: &[u8] = std::slice::from_raw_parts((&sigma) as *const f32 as *const u8, std::mem::size_of::<f32>());
+                let _ = effect.SetValue(D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION.0 as u32, D2D1_PROPERTY_TYPE_FLOAT, sigma_bytes);
+                let border_val: u32 = D2D1_BORDER_MODE_SOFT.0 as u32;
+                let border_bytes: &[u8] = std::slice::from_raw_parts((&border_val) as *const u32 as *const u8, std::mem::size_of::<u32>());
+                let _ = effect.SetValue(D2D1_GAUSSIANBLUR_PROP_BORDER_MODE.0 as u32, D2D1_PROPERTY_TYPE_UINT32, border_bytes);
+                if let Ok(effect_img) = effect.cast::<ID2D1Image>() {
+                    let offset = D2D_POINT_2F { x: (rect.x0 - pad) as f32, y: (rect.y0 - pad) as f32 };
+                    ctx.DrawImage(&effect_img, Some(&offset), None, D2D1_INTERPOLATION_MODE_LINEAR, D2D1_COMPOSITE_MODE_SOURCE_OVER);
+                } else {
+                    // Fallback copy via DrawBitmap (no blur)
+                    let dest = D2D_RECT_F { left: (rect.x0 - pad) as f32, top: (rect.y0 - pad) as f32, right: (rect.x0 - pad) as f32 + ow as f32, bottom: (rect.y0 - pad) as f32 + oh as f32 };
+                    ctx.DrawBitmap(&offscreen, Some(&dest), 1.0, D2D1_INTERPOLATION_MODE_LINEAR, None, None);
+                }
+            } else {
+                // Fallback: no effect, just draw offscreen directly (unblurred)
+                let dest = D2D_RECT_F { left: (rect.x0 - pad) as f32, top: (rect.y0 - pad) as f32, right: (rect.x0 - pad) as f32 + ow as f32, bottom: (rect.y0 - pad) as f32 + oh as f32 };
+                ctx.DrawBitmap(&offscreen, Some(&dest), 1.0, D2D1_INTERPOLATION_MODE_LINEAR, None, None);
+            }
+            // Insert into cache: need blurred result if effect exists; capture by drawing effect into a bitmap.
+            if let Some(effect) = &self.gaussian_blur_effect {
+                if let Ok(effect_img) = effect.cast::<ID2D1Image>() {
+                    if let Ok(desc_bitmap) = ctx.CreateBitmap(D2D_SIZE_U { width: ow, height: oh }, None, 0, &bp) {
+                        let prev2_res = ctx.GetTarget();
+                        ctx.SetTarget(&desc_bitmap);
+                        let offset0 = D2D_POINT_2F { x: 0.0, y: 0.0 };
+                        let copy_rect = D2D_RECT_F { left: 0.0, top: 0.0, right: ow as f32, bottom: oh as f32 };
+                        ctx.DrawImage(&effect_img, Some(&offset0), Some(&copy_rect), D2D1_INTERPOLATION_MODE_LINEAR, D2D1_COMPOSITE_MODE_SOURCE_COPY);
+                        match prev2_res { Ok(img) => { ctx.SetTarget(&img); }, Err(_) => { ctx.SetTarget(None::<&ID2D1Image>); } };
+                        self.insert_shadow_cache(key, desc_bitmap.clone());
+                    }
+                } else {
+                    self.insert_shadow_cache(key, offscreen.clone());
+                }
+            } else {
+                self.insert_shadow_cache(key, offscreen.clone());
             }
         }
+    }
+
+    fn draw_inset_gaussian_box_shadow(&mut self, ctx: &ID2D1DeviceContext, rect: Rect, color: Color, radius: f64, std_dev: f64) {
+        // Revised inset shadow: create a thin ring just inside the element rect and blur inward.
+        let std_dev = std_dev.clamp(0.5, 64.0);
+        if rect.width() <= 0.0 || rect.height() <= 0.0 { return; }
+        let ring_thickness = 1.5_f64.max(std_dev * 0.4).min(rect.width().min(rect.height()) * 0.5 - 0.5);
+        let pad = (std_dev * 1.5).ceil().max(1.0); // inward spread
+        let off_w = (rect.width() + pad * 2.0).ceil() as u32;
+        let off_h = (rect.height() + pad * 2.0).ceil() as u32;
+        if off_w == 0 || off_h == 0 { return; }
+        let factory = match &self.d2d_factory { Some(f) => f.clone(), None => return };
+        unsafe {
+            let bmp_props = D2D1_BITMAP_PROPERTIES1 { pixelFormat: D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED }, dpiX: 96.0, dpiY: 96.0, bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW, colorContext: std::mem::ManuallyDrop::new(None::<ID2D1ColorContext>) };
+            let off_bmp = match ctx.CreateBitmap(D2D_SIZE_U { width: off_w, height: off_h }, None, 0, &bmp_props) { Ok(b) => b, Err(_) => return };
+            let prev_target = ctx.GetTarget().ok();
+            ctx.SetTarget(&off_bmp);
+            let clear = self.create_solid_brush(Color::TRANSPARENT);
+            let full = D2D_RECT_F { left: 0.0, top: 0.0, right: off_w as f32, bottom: off_h as f32 };
+            ctx.FillRectangle(&full, &clear);
+            // Build ring path: outer = element rect (offset by pad), inner = deflated by ring_thickness
+            let path_geom1 = match factory.CreatePathGeometry() { Ok(g) => g, Err(_) => { ctx.SetTarget(prev_target.as_ref()); return; } };
+            let path_geom: ID2D1PathGeometry = path_geom1.cast().unwrap_or_else(|_| { ctx.SetTarget(prev_target.as_ref()); panic!("PathGeometry cast failed") });
+            if let Ok(sink) = path_geom.Open() {
+                sink.SetFillMode(D2D1_FILL_MODE_ALTERNATE);
+                let ox0 = pad as f32; let oy0 = pad as f32;
+                let ox1 = (pad + rect.width()) as f32; let oy1 = (pad + rect.height()) as f32;
+                sink.BeginFigure(D2D_POINT_2F { x: ox0, y: oy0 }, D2D1_FIGURE_BEGIN_FILLED);
+                sink.AddLine(D2D_POINT_2F { x: ox1, y: oy0 });
+                sink.AddLine(D2D_POINT_2F { x: ox1, y: oy1 });
+                sink.AddLine(D2D_POINT_2F { x: ox0, y: oy1 });
+                sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+                let ix0 = (pad + ring_thickness) as f32;
+                let iy0 = (pad + ring_thickness) as f32;
+                let ix1 = (pad + rect.width() - ring_thickness) as f32;
+                let iy1 = (pad + rect.height() - ring_thickness) as f32;
+                if ix1 > ix0 && iy1 > iy0 {
+                    sink.BeginFigure(D2D_POINT_2F { x: ix0, y: iy0 }, D2D1_FIGURE_BEGIN_FILLED);
+                    sink.AddLine(D2D_POINT_2F { x: ix1, y: iy0 });
+                    sink.AddLine(D2D_POINT_2F { x: ix1, y: iy1 });
+                    sink.AddLine(D2D_POINT_2F { x: ix0, y: iy1 });
+                    sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+                }
+                let _ = sink.Close();
+            }
+            let mut comps = color.components;
+            comps[3] *= 0.9; // slightly stronger alpha for inner shadow edge
+            let ring_brush = self.create_solid_brush(Color::new(comps));
+            ctx.FillGeometry(&path_geom, &ring_brush, None);
+            // Blur ring
+            let effect = if let Some(e) = &self.gaussian_blur_effect { e.clone() } else { match ctx.CreateEffect(&CLSID_D2D1GaussianBlur) { Ok(e) => { self.gaussian_blur_effect = Some(e.clone()); e }, Err(_) => { ctx.SetTarget(prev_target.as_ref()); return; } } };
+            effect.SetInput(0, &off_bmp, true);
+            let sigma = std_dev as f32;
+            let sigma_bytes = std::slice::from_raw_parts((&sigma) as *const f32 as *const u8, std::mem::size_of::<f32>());
+            let _ = effect.SetValue(D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION.0 as u32, D2D1_PROPERTY_TYPE_FLOAT, sigma_bytes);
+            let border_mode = D2D1_BORDER_MODE_SOFT; let border_u32: u32 = border_mode.0 as u32;
+            let border_bytes = std::slice::from_raw_parts((&border_u32) as *const u32 as *const u8, std::mem::size_of::<u32>());
+            let _ = effect.SetValue(D2D1_GAUSSIANBLUR_PROP_BORDER_MODE.0 as u32, D2D1_PROPERTY_TYPE_UINT32, border_bytes);
+            ctx.SetTarget(prev_target.as_ref());
+            // Clip to element rect and draw
+            let clip = D2D_RECT_F { left: rect.x0 as f32, top: rect.y0 as f32, right: rect.x1 as f32, bottom: rect.y1 as f32 };
+            ctx.PushAxisAlignedClip(&clip, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+            if let Ok(effect_img) = effect.cast::<ID2D1Image>() {
+                let offset = D2D_POINT_2F { x: (rect.x0 - pad) as f32, y: (rect.y0 - pad) as f32 };
+                ctx.DrawImage(&effect_img, Some(&offset), None, D2D1_INTERPOLATION_MODE_LINEAR, D2D1_COMPOSITE_MODE_SOURCE_OVER);
+            }
+            ctx.PopAxisAlignedClip();
+        }
+    }
+
+    fn blit_cached_shadow(&self, ctx: &ID2D1DeviceContext, bmp: &ID2D1Bitmap1, rect: &Rect, pad: f32) {
+        unsafe {
+            let sz = bmp.GetSize();
+            let dest = D2D_RECT_F { left: (rect.x0 - pad as f64) as f32, top: (rect.y0 - pad as f64) as f32, right: (rect.x0 - pad as f64) as f32 + sz.width, bottom: (rect.y0 - pad as f64) as f32 + sz.height };
+            ctx.DrawBitmap(bmp, Some(&dest), 1.0, D2D1_INTERPOLATION_MODE_LINEAR, None, None);
+        }
+    }
+
+    fn insert_shadow_cache(&mut self, key: ShadowKey, bmp: ID2D1Bitmap1) {
+        const MAX_SHADOWS: usize = 64;
+        if self.shadow_cache.contains_key(&key) { return; }
+        if self.shadow_cache_order.len() >= MAX_SHADOWS {
+            if let Some(old) = self.shadow_cache_order.pop_front() { self.shadow_cache.remove(&old); }
+        }
+        self.shadow_cache_order.push_back(key);
+        self.shadow_cache.insert(key, bmp);
     }
 
 }

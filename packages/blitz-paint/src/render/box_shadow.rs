@@ -101,12 +101,13 @@ impl ElementCx<'_> {
                         let radius = self.frame.border_radii.average();
 
                         // Fill the color
+                        // Encode inset by negating std_dev so renderer can distinguish without new trait API.
                         scene.draw_box_shadow(
                             transform,
                             self.frame.border_box,
                             shadow_color,
                             radius,
-                            shadow.base.blur.px() as f64 * self.scale,
+                            -(shadow.base.blur.px() as f64 * self.scale),
                         );
                     }
                 }
