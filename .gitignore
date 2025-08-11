@@ -9,3 +9,10 @@
 /wpt/output
 /apps/wpt/output
 /sites
+# Native / WinRT build artifacts
+*.dll
+*.winmd
+*.pdb
+packages/blitz-shell-winui/Generated Files/*.winmd
+apps/BlitzWinRTTestApp/Blitz.WinUIProjection/Libraries/*.dll
+apps/BlitzWinRTTestApp/Blitz.WinUIProjection/Libraries/*.winmd

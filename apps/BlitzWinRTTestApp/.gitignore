@@ -482,3 +482,8 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# WinRT projection generated artifacts
+Blitz.WinUIProjection/Libraries/*.dll
+Blitz.WinUIProjection/Libraries/*.winmd
+Blitz.WinUIProjection/Libraries/*.pdb
