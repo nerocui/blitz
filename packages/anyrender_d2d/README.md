@@ -4,26 +4,40 @@ Direct2D backend for the `anyrender` abstraction used by Blitz. It renders direc
 
 ## Current Capabilities
 
-- Scene recording + playback (rect + arbitrary path fill & stroke)
-- Solid, linear & radial (approx sweep) gradients (cached)
-- Image drawing (bitmap caching)
-- Layers via axis-aligned clip stack
-- Affine transforms per command
-- Basic text drawing (DirectWrite layout) using a default font
-- Approximate box shadow (simple inflated, semi-transparent rect)
+- Scene recording + playback (arbitrary path fill & stroke; rectangle fast path intentionally removed to preserve rounded corners)
+- Solid / linear / radial (sweep approximated) gradients with caching
+- Image drawing with bitmap caching
+- Layers via axis‑aligned clip stack (Push/PopLayer)
+- Per‑command baked translation transforms
+- DirectWrite glyph run submission (Segoe UI default font) with per‑glyph advances, fill and (future) stroke styles
+- True Gaussian blur box shadows (outset & inset) with rounded corner support and bitmap cache (LRU)
+- Border radius respected for fills, strokes, and shadows
+- Runtime‑controllable verbose diagnostics (disabled by default)
 
-## Recent Session Summary (2025-08)
+## Post‑Mortem: Rendering Failure & Fix (Aug 2025)
 
-This session focused on stabilizing and extending the Direct2D backend for the WinUI shell pivot:
+### Symptoms
+After introducing Gaussian blur shadows (outset + inset) and extensive diagnostics, all regular scene content disappeared: only an opaque fallback background was visible. `EndDraw` began failing with `HRESULT(0x88990001) D2DERR_WRONG_STATE` whenever a full (≈256 command) frame executed. Reducing commands or disabling features changed failure timing, suggesting internal device context state corruption rather than logic errors in scene recording.
 
-1. Device & Swapchain: Corrected D3D11 device creation (explicit `D3D11_SDK_VERSION`) and robust DXGI swapchain handling for `SwapChainPanel`.
-2. Logging: Redirected internal diagnostics to `OutputDebugString` for visibility in WinDbg / VS Output window.
-3. Text Rendering Overhaul: Replaced the earlier naive text path accumulation with true DirectWrite glyph run submission (`IDWriteFontFace::DrawGlyphRun` via `ID2D1DeviceContext::DrawGlyphRun`). Introduced a `GlyphRun` scene command storing glyph indices + per‑glyph advances.
-4. Advances Derivation: Derived advances from upstream absolute glyph x positions, preserving shaping decisions made by the layout engine (Parley) instead of reconstructing them heuristically.
-5. Multi-line Handling Attempt: Added (then removed) heuristic line splitting inside the backend. We reverted that change to rely solely on upstream layout line iteration so backend remains a dumb recorder for each glyph run line.
-6. Style Handling Refactor: Began mapping `StyleRef` into a `GlyphRenderStyle` (fill vs stroke). Stroke currently falls back to fill rendering pending proper outline stroking implementation.
-7. Cleanup: Removed legacy `text_format_cache` path and unused code; pruned warnings; consolidated glyph rendering code path.
-8. Enum / Command Evolution: Added `GlyphRun { glyph_indices, advances, origin, size, style }` to the command list.
+### Root Causes
+1. Target Mutation During Active Frame: The initial shadow implementation reused the primary `ID2D1DeviceContext` and called `SetTarget` mid‑`BeginDraw` to redirect output to an offscreen bitmap for blur, then restored the original target. Direct2D is sensitive to target switches during an active draw; this pattern intermittently left the context in a wrong state by `EndDraw` (especially with nested clips & effects).
+2. Geometry Figure Closure Edge Cases: Some complex paths relied on implicit figure closure. While not the primary trigger, ensuring every opened figure is explicitly ended removed a potential secondary source of state inconsistency.
+
+### Fixes
+1. Shadow Refactor: Both outset and inset shadow routines now create a **temporary device context** (`CreateDeviceContext`) dedicated to rasterizing the solid (or ring) mask into an offscreen `ID2D1Bitmap1`. The main context never changes its target after `BeginDraw`.
+2. Effect Capture Isolation: Capturing a blurred result for the shadow cache also uses a temporary context instead of temporarily rebinding the main context target.
+3. Explicit Geometry Finalization: Path building now tracks whether a figure is open and explicitly `EndFigure` (closed or open) before `sink.Close()`, logging any HRESULT failures.
+4. Logging Hygiene: Per‑command logs, clip push/pop, and shadow diagnostics are now gated behind a runtime verbose flag to keep default frames lightweight.
+
+### Outcome
+`EndDraw` now returns `S_OK`; all shapes, text, and both inset/outset shadows render correctly with preserved border radii. No regression in performance-critical paths was observed (temporary contexts are short‑lived and only per unique shadow render, amortized by cache reuse).
+
+### Lessons
+- Avoid mutating the primary device context target mid‑frame; prefer auxiliary contexts or command lists for intermediate surfaces.
+- Keep diagnostic instrumentation controllable at runtime to prevent masking timing-related issues or adding overhead.
+- Always finalize path figures deterministically; defensive closure eliminates a class of subtle state issues.
+
+The codebase has been cleaned so that only necessary logs remain by default; deep diagnostics require opting in (see Verbose Logging section).
 
 ## Completed (This Session)
 
@@ -35,16 +49,14 @@ This session focused on stabilizing and extending the Direct2D backend for the W
 
 ## Remaining TODO (Short Term)
 
-1. Font Selection & Styles: Map `peniko::Font` / CSS style (weight, italic) to `IDWriteFontFace` instances; cache faces keyed by (family, weight, style, stretch).
-2. Stroke Text: Implement outline extraction + stroking (convert glyph run to geometry with `GetGlyphRunOutline`) safely within current windows crate types.
-3. Text Decoration: Underline / strikethrough painting inside backend (currently handled upstream by drawing lines; verify alignment with DWrite metrics for high DPI).
-4. Centering / Alignment: Ensure upstream layout passes correct translated origins for centered flex container; optionally add a transform command if needed to avoid baking translation into glyph origins.
-5. Box Shadow: Replace placeholder inflated rect with Gaussian blur effect pipeline (offscreen bitmap + `ID2D1Effect` GaussianBlur + composite).
-6. Blend Modes: Map `peniko::BlendMode` variants to D2D blend/composite (fallback with logging when unsupported).
-7. Gradient Extend Modes: Support Repeat / Reflect; accurate Sweep gradient emulation.
-8. Resource Lifetime: Add cache eviction (LRU size / count limits) + memory stats.
-9. Device Lost Handling: Detect `D2DERR_RECREATE_TARGET` on `EndDraw` and rebuild device context + caches.
-10. High DPI: Audit pixel vs DIP usage; scale glyph positions & brush transforms appropriately for non‑96 DPI.
+1. Font selection & style mapping (family / weight / stretch / italic) with font face cache.
+2. Text stroke (glyph outlines via `GetGlyphRunOutline`) & text decorations.
+3. Blend / composite mode mapping (peniko::BlendMode -> D2D1_COMPOSITE_MODE / blend state) with graceful fallbacks.
+4. Gradient extend modes (Repeat / Reflect) and improved sweep gradient emulation.
+5. Cache policies & stats: gradient/image cache eviction + shadow cache sizing heuristic.
+6. Device lost handling (`D2DERR_RECREATE_TARGET`) and resource reinitialization path.
+7. High DPI audit (consistent DIP vs pixel usage for glyph origins & shadow padding).
+8. Optional performance / telemetry hooks (timings for scene encode & playback).
 
 ## Future Improvements (Longer Term)
 
@@ -70,9 +82,7 @@ Contributions welcome—please keep changes modular and avoid leaking Direct2D t
 
 ## Future Iterations / TODO
 
-1. True Gaussian blur via `ID2D1Effect` (GaussianBlur) for box shadows
-   - Replace placeholder inflated rect with an offscreen target + blur effect.
-   - Consider caching blurred rounded-rect masks for common radii.
+1. (Done) True Gaussian blur via `ID2D1Effect` (GaussianBlur) for box shadows (outset & inset) with temporary device contexts and bitmap cache.
 2. Full blend mode & extend mode mapping
    - Map `peniko::BlendMode { mix, compose }` to Direct2D primitive blend & composite.
    - Respect gradient/image extend (Pad/Repeat/Reflect) instead of always Clamp.
@@ -99,7 +109,7 @@ Contributions welcome—please keep changes modular and avoid leaking Direct2D t
 
 - Gradient sweep currently falls back to a simple linear approximation.
 - Text rendering is placeholder-quality; do not rely on it for production typography.
-- Box shadow is visually incorrect; flagged for replacement.
+- Box shadow implementation now uses real Gaussian blur; further refinement (spread modes, performance tuning) welcome.
 
 Contributions implementing any of the above are welcome—please keep changes modular.
 

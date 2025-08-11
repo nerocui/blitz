@@ -56,13 +56,9 @@ struct D2DScene { commands: Vec<Command>, }
 enum Command {
     PushLayer { rect: Rect },
     PopLayer,
-    FillRect { rect: Rect, brush: RecordedBrush },
-    StrokeRect { rect: Rect, brush: RecordedBrush, width: f64 },
     FillPath { path: Vec<PathEl>, brush: RecordedBrush },
     StrokePath { path: Vec<PathEl>, brush: RecordedBrush, width: f64 },
     BoxShadow { rect: Rect, color: Color, radius: f64, std_dev: f64, inset: bool },
-    // Store raw glyph indices + per-glyph advances + origin (baseline start). Advances derived
-    // from provided absolute x positions so we maintain original shaping/spacing from layout.
     GlyphRun { glyph_indices: Vec<u16>, advances: Vec<f32>, origin: (f32,f32), size: f32, style: GlyphRenderStyle },
 }
 
@@ -113,6 +109,9 @@ fn debug_log_d2d(msg: &str) {
 static VERBOSE_LOG: AtomicBool = AtomicBool::new(false);
 pub fn set_verbose_logging(enabled: bool) { VERBOSE_LOG.store(enabled, Ordering::Relaxed); }
 #[inline] fn verbose_log_d2d(msg: &str) { if VERBOSE_LOG.load(Ordering::Relaxed) { debug_log_d2d(msg); } }
+// Lightweight macro to avoid repeating VERBOSE_LOG.load boilerplate while preserving
+// ability to skip formatting cost when verbose logging is off.
+macro_rules! vlog { ($($t:tt)*) => { if VERBOSE_LOG.load(Ordering::Relaxed) { debug_log_d2d(&format!($($t)*)); } } }
 
 impl<'a> PaintScene for D2DScenePainter<'a> {
     fn reset(&mut self) { self.scene.reset(); }
@@ -164,9 +163,7 @@ impl<'a> PaintScene for D2DScenePainter<'a> {
             }
         }
         self.scene.commands.push(Command::FillPath { path: v, brush: brush_rec });
-        if self.scene.commands.len() == 1 {
-            debug_log_d2d("D2DScenePainter: first command recorded (kind=FillPath) - painting pipeline active");
-        }
+    if self.scene.commands.len() == 1 { vlog!("first command recorded (FillPath)"); }
     }
     fn draw_glyphs<'b, 's: 'b>(&'s mut self, _font: &'b Font, font_size: f32, _hint: bool, _norm: &'b [NormalizedCoord], style: impl Into<StyleRef<'b>>, brush: impl Into<BrushRef<'b>>, brush_alpha: f32, transform: Affine, _glyph_transform: Option<Affine>, glyphs: impl Iterator<Item = Glyph>) {
     let style_ref: StyleRef<'b> = style.into();
@@ -374,7 +371,7 @@ impl D2DWindowRenderer {
             None => return,
         };
         // Allow enabling verbose logging dynamically via environment.
-        if std::env::var("BLITZ_VERBOSE").map(|v| v=="1" || v.eq_ignore_ascii_case("true")).unwrap_or(false) {
+    if std::env::var("BLITZ_VERBOSE").map(|v| v=="1" || v.eq_ignore_ascii_case("true")).unwrap_or(false) {
             set_verbose_logging(true);
         }
         
@@ -388,14 +385,8 @@ impl D2DWindowRenderer {
             let full = D2D_RECT_F { left: 0.0, top: 0.0, right: size.width, bottom: size.height };
             let fallback_bg_brush = self.create_solid_brush(Color::WHITE); // TODO: replace with document root background
             let _ = ctx.FillRectangle(&full, &fallback_bg_brush);
-            debug_log_d2d(&format!("D2D: fallback opaque background filled {}x{}", size.width as u32, size.height as u32));
-            // Optional always-visible debug rect (magenta) for diagnosing total blank output; enable via env var BLITZ_DEBUG_RECT=1
-            if std::env::var("BLITZ_DEBUG_RECT").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false) {
-                let dbg_br = self.create_solid_brush(Color::new([1.0, 0.0, 1.0, 1.0]));
-                let r = D2D_RECT_F { left: 4.0, top: 4.0, right: 104.0, bottom: 54.0 };
-                let _ = ctx.FillRectangle(&r, &dbg_br);
-                debug_log_d2d("D2D: drew BLITZ_DEBUG_RECT magenta block (4,4)-(104,54)");
-            }
+            vlog!("fallback bg {}x{}", size.width as u32, size.height as u32);
+            // (Removed always-on debug rect; keep codebase clean. Use VERBOSE logs for diagnostics.)
             // Reset per-frame debug counters
             self.debug_shadow_logs = 0;
             
@@ -403,71 +394,37 @@ impl D2DWindowRenderer {
             let commands = std::mem::take(&mut self.scene.commands);
             let command_count = commands.len();
             self.last_command_count = command_count as u32;
-            if command_count == 0 { debug_log_d2d("D2D: playback with 0 commands (expect fallback bg)"); }
-            else { debug_log_d2d(&format!("D2D: playback command_count={}", command_count)); }
+            if command_count == 0 { vlog!("playback: 0 cmds"); } else { vlog!("playback: {} cmds", command_count); }
             // Optional debug background (disabled by default). Enable only under verbose logging to diagnose alpha issues.
             if VERBOSE_LOG.load(Ordering::Relaxed) {
                 let dbg = self.create_solid_brush(Color::new([0.92,0.92,0.95,1.0]));
                 let _ = ctx.FillRectangle(&full, &dbg);
             }
             let shadow_count = commands.iter().filter(|c| matches!(c, Command::BoxShadow { .. })).count();
-            if shadow_count > 0 {
-                debug_log_d2d(&format!("D2D: {} box shadow commands", shadow_count));
-            }
+            if shadow_count > 0 { vlog!("shadows: {}", shadow_count); }
             
-            let had_commands = !commands.is_empty();
+            // Playback counters
             let mut fill_path_count = 0u32;
             let mut stroke_path_count = 0u32;
-            let mut fill_rect_count = 0u32;
-            let mut stroke_rect_count = 0u32;
             let mut clip_depth: i32 = 0;
             let mut max_clip_depth: i32 = 0;
             // Isolation flags
-            let disable_clips = std::env::var("BLITZ_DISABLE_CLIPS").map(|v| v=="1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
-            let disable_text  = std::env::var("BLITZ_DISABLE_TEXT").map(|v| v=="1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
-            let recreate_effect_per_shadow = std::env::var("BLITZ_SHADOW_EFFECT_PER").map(|v| v=="1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
-            let disable_inset_shadows = std::env::var("BLITZ_DISABLE_INSET_SHADOWS").map(|v| v=="1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
-            let max_cmd_limit: Option<usize> = std::env::var("BLITZ_MAX_CMDS").ok().and_then(|s| s.parse().ok());
+            // Pruned experimental env toggles; retain only minimal isolation switches.
+            let disable_clips = false; // clip stack stable
+            let disable_text  = false; // glyph runs stable
+            let recreate_effect_per_shadow = false; // effect reused
+            let disable_inset_shadows = false; // inset stable
             for (cmd_index, cmd) in commands.into_iter().enumerate() {
-                if let Some(limit) = max_cmd_limit { if cmd_index >= limit { debug_log_d2d(&format!("D2D: BLITZ_MAX_CMDS hit at {} (stopping playback early)", limit)); break; } }
-                debug_log_d2d(&format!("D2D: executing cmd_index={} kind={}", cmd_index, match &cmd { Command::FillRect{..}=>"FillRect", Command::StrokeRect{..}=>"StrokeRect", Command::FillPath{..}=>"FillPath", Command::StrokePath{..}=>"StrokePath", Command::PushLayer{..}=>"PushLayer", Command::PopLayer=>"PopLayer", Command::BoxShadow{inset,..}=> if *inset {"BoxShadowInset"} else {"BoxShadow"}, Command::GlyphRun{..}=>"GlyphRun" }));
+                // max command limit feature removed (kept simpler playback path)
+                vlog!("cmd {} {}", cmd_index, match &cmd { Command::FillPath{..}=>"FillPath", Command::StrokePath{..}=>"StrokePath", Command::PushLayer{..}=>"PushLayer", Command::PopLayer=>"PopLayer", Command::BoxShadow{inset,..}=> if *inset {"BoxShadowInset"} else {"BoxShadow"}, Command::GlyphRun{..}=>"GlyphRun" });
                 match cmd {
-                    Command::FillRect { rect, brush } => {
-                        fill_rect_count += 1;
-                        let brush = self.get_or_create_brush(&brush);
-                        let r = D2D_RECT_F { left: rect.x0 as f32, top: rect.y0 as f32, right: rect.x1 as f32, bottom: rect.y1 as f32 };
-                        let _ = ctx.FillRectangle(&r, &brush);
-                    }
-                    Command::StrokeRect { rect, brush, width } => {
-                        stroke_rect_count += 1;
-                        let brush = self.get_or_create_brush(&brush);
-                        let r = D2D_RECT_F { left: rect.x0 as f32, top: rect.y0 as f32, right: rect.x1 as f32, bottom: rect.y1 as f32 };
-                        let _ = ctx.DrawRectangle(&r, &brush, width as f32, None);
-                    }
                     Command::FillPath { path, brush } => {
                         fill_path_count += 1;
                         if let Some(geom) = self.build_path_geometry(&path) {
                             let brush = self.get_or_create_brush(&brush);
-                            if VERBOSE_LOG.load(Ordering::Relaxed) && fill_path_count <= 16 {
-                                if let Ok(sol) = brush.cast::<ID2D1SolidColorBrush>() {
-                                    let col = sol.GetColor();
-                                    debug_log_d2d(&format!("D2D FillPath path_index={} cmd_index={} solid_rgba=({:.3},{:.3},{:.3},{:.3})", fill_path_count, cmd_index, col.r, col.g, col.b, col.a));
-                                } else {
-                                    debug_log_d2d(&format!("D2D FillPath path_index={} cmd_index={} (non-solid brush)", fill_path_count, cmd_index));
-                                }
-                            }
+                            if fill_path_count <= 8 { if let Ok(sol) = brush.cast::<ID2D1SolidColorBrush>() { let col = sol.GetColor(); vlog!("FillPath idx={} cmd={} rgba=({:.3},{:.3},{:.3},{:.3})", fill_path_count, cmd_index, col.r, col.g, col.b, col.a); } else { vlog!("FillPath idx={} cmd={} (non-solid)", fill_path_count, cmd_index); } }
                             let _ = ctx.FillGeometry(&geom, &brush, None);
-                            if VERBOSE_LOG.load(Ordering::Relaxed) {
-                                if fill_path_count <= 16 { // limit spam
-                                    // Compute simple bbox
-                                    let mut minx = f32::INFINITY; let mut miny = f32::INFINITY; let mut maxx = f32::NEG_INFINITY; let mut maxy = f32::NEG_INFINITY;
-                                    for el in &path { match el { PathEl::MoveTo(p) | PathEl::LineTo(p) => { minx = minx.min(p.x as f32); miny = miny.min(p.y as f32); maxx = maxx.max(p.x as f32); maxy = maxy.max(p.y as f32); }, PathEl::QuadTo(p1,p2) => { for q in [p1,p2] { minx=minx.min(q.x as f32); miny=miny.min(q.y as f32); maxx=maxx.max(q.x as f32); maxy=maxy.max(q.y as f32); } }, PathEl::CurveTo(p1,p2,p3) => { for q in [p1,p2,p3] { minx=minx.min(q.x as f32); miny=miny.min(q.y as f32); maxx=maxx.max(q.x as f32); maxy=maxy.max(q.y as f32); } }, PathEl::ClosePath => {} } }
-                                    debug_log_d2d(&format!("D2D FillPath path_index={} elems={} bbox=({}, {}, {}, {})", fill_path_count, path.len(), minx, miny, maxx, maxy));
-                                }
-                                if let Ok(debug_brush) = ctx.CreateSolidColorBrush(&D2D1_COLOR_F { r: 1.0, g: 0.0, b: 0.0, a: 0.35 }, None) {
-                                    let _ = ctx.DrawGeometry(&geom, &debug_brush, 1.0, None);
-                                }
-                            }
+                            if fill_path_count <= 8 { let mut minx = f32::INFINITY; let mut miny = f32::INFINITY; let mut maxx = f32::NEG_INFINITY; let mut maxy = f32::NEG_INFINITY; for el in &path { match el { PathEl::MoveTo(p) | PathEl::LineTo(p) => { minx=minx.min(p.x as f32); miny=miny.min(p.y as f32); maxx=maxx.max(p.x as f32); maxy=maxy.max(p.y as f32); }, PathEl::QuadTo(p1,p2) => { for q in [p1,p2] { minx=minx.min(q.x as f32); miny=miny.min(q.y as f32); maxx=maxx.max(q.x as f32); maxy=maxy.max(q.y as f32); } }, PathEl::CurveTo(p1,p2,p3) => { for q in [p1,p2,p3] { minx=minx.min(q.x as f32); miny=miny.min(q.y as f32); maxx=maxx.max(q.x as f32); maxy=maxy.max(q.y as f32); } }, PathEl::ClosePath => {} } } vlog!("FillPath idx={} elems={} bbox=({}, {}, {}, {})", fill_path_count, path.len(), minx, miny, maxx, maxy); }
                         }
                     }
                     Command::StrokePath { path, brush, width } => {
@@ -482,28 +439,20 @@ impl D2DWindowRenderer {
                         let r = D2D_RECT_F { left: rect.x0 as f32, top: rect.y0 as f32, right: rect.x1 as f32, bottom: rect.y1 as f32 };
                         let _ = ctx.PushAxisAlignedClip(&r, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
                         clip_depth += 1; if clip_depth > max_clip_depth { max_clip_depth = clip_depth; }
-                        debug_log_d2d(&format!("D2D: PushLayer depth={} rect=({}, {}, {}, {})", clip_depth, rect.x0, rect.y0, rect.x1, rect.y1));
+                        vlog!("PushLayer depth={} rect=({}, {}, {}, {})", clip_depth, rect.x0, rect.y0, rect.x1, rect.y1);
                     }
                     Command::PopLayer => {
                         if disable_clips { continue; }
-                        if clip_depth <= 0 { debug_log_d2d("D2D: PopLayer underflow (extra pop)"); }
+                        if clip_depth <= 0 { vlog!("PopLayer underflow"); }
                         else { clip_depth -= 1; }
                         ctx.PopAxisAlignedClip();
-                        debug_log_d2d(&format!("D2D: PopLayer new_depth={}", clip_depth));
+                        vlog!("PopLayer depth={}", clip_depth);
                     }
             Command::BoxShadow { rect, color, radius, std_dev, inset } => {
                         // Allow disabling shadows for isolation (BLITZ_DISABLE_SHADOWS=1)
-                        if std::env::var("BLITZ_DISABLE_SHADOWS").map(|v| v=="1" || v.eq_ignore_ascii_case("true")).unwrap_or(false) { continue; }
+                        if std::env::var("BLITZ_DISABLE_SHADOWS").map(|v| v=="1" || v.eq_ignore_ascii_case("true")).unwrap_or(false) { continue; } // keep one isolation flag
                         if inset && disable_inset_shadows { continue; }
-                        if self.debug_shadow_logs < 16 {
-                            debug_log_d2d(&format!(
-                "D2D BoxShadow{} rect=({}, {}, {}, {}) radius={} sd={} color rgba=({:.3},{:.3},{:.3},{:.3})",
-                if inset { "(inset)" } else { "" },
-                rect.x0, rect.y0, rect.x1, rect.y1, radius, std_dev,
-                                color.components[0], color.components[1], color.components[2], color.components[3]
-                            ));
-                            self.debug_shadow_logs += 1;
-                        }
+                        if self.debug_shadow_logs < 8 { vlog!("BoxShadow{} rect=({}, {}, {}, {}) r={} sd={} a={:.3}", if inset {"(inset)"} else {""}, rect.x0, rect.y0, rect.x1, rect.y1, radius, std_dev, color.components[3]); self.debug_shadow_logs += 1; }
             if inset { self.draw_inset_gaussian_box_shadow(&ctx, rect, color, radius, std_dev); }
             else {
                 if recreate_effect_per_shadow { self.gaussian_blur_effect = None; }
@@ -540,22 +489,12 @@ impl D2DWindowRenderer {
                     }
                 }
             }
-            if clip_depth != 0 { // attempt to auto-heal to avoid D2DERR_WRONG_STATE on EndDraw
-                debug_log_d2d(&format!("D2D: clip imbalance detected depth={} (max={}) - auto popping", clip_depth, max_clip_depth));
-                while clip_depth > 0 { ctx.PopAxisAlignedClip(); clip_depth -= 1; }
-            }
-            if VERBOSE_LOG.load(Ordering::Relaxed) {
-                debug_log_d2d(&format!("D2D: command type counts fill_path={} stroke_path={} fill_rect={} stroke_rect={} total={} shadows={}", fill_path_count, stroke_path_count, fill_rect_count, stroke_rect_count, command_count, shadow_count));
-            }
-            if !had_commands {
-                // Fallback background (single rect) for visibility when nothing recorded.
-                let bg = self.create_solid_brush(Color::WHITE);
-                let _ = ctx.FillRectangle(&full, &bg);
-            }
+            if clip_depth != 0 { while clip_depth > 0 { ctx.PopAxisAlignedClip(); clip_depth -= 1; } }
+            vlog!("counts fp={} sp={} cmds={} shadows={}", fill_path_count, stroke_path_count, command_count, shadow_count);
+            // If no commands, fallback bg already drawn earlier.
             // Note: SetTransform removed - not available in this windows-rs version
             let end_res = ctx.EndDraw(None, None);
-            if end_res.is_err() { debug_log_d2d(&format!("D2D: EndDraw error {:?}", end_res)); }
-            else { debug_log_d2d("D2D: EndDraw ok"); }
+            if let Err(e) = end_res { debug_log_d2d(&format!("EndDraw error {:?}", e)); } else { vlog!("EndDraw ok"); }
         }
     }
 
@@ -652,7 +591,7 @@ impl D2DWindowRenderer {
             for el in path {
                 match el {
                     PathEl::MoveTo(p) => {
-                        if figure_open { sink.EndFigure(D2D1_FIGURE_END_OPEN); figure_open = false; }
+                        if figure_open { sink.EndFigure(D2D1_FIGURE_END_OPEN); }
                         sink.BeginFigure(D2D_POINT_2F { x: p.x as f32, y: p.y as f32 }, D2D1_FIGURE_BEGIN_FILLED);
                         figure_open = true;
                     }
@@ -667,12 +606,10 @@ impl D2DWindowRenderer {
                     PathEl::CurveTo(p1, p2, p3) => {
                         sink.AddBezier(&D2D1_BEZIER_SEGMENT { point1: D2D_POINT_2F { x: p1.x as f32, y: p1.y as f32 }, point2: D2D_POINT_2F { x: p2.x as f32, y: p2.y as f32 }, point3: D2D_POINT_2F { x: p3.x as f32, y: p3.y as f32 } });
                     }
-                    PathEl::ClosePath => {
-                        if figure_open { sink.EndFigure(D2D1_FIGURE_END_CLOSED); figure_open = false; }
-                    }
+            PathEl::ClosePath => { if figure_open { sink.EndFigure(D2D1_FIGURE_END_CLOSED); figure_open = false; } }
                 }
             }
-            if figure_open { sink.EndFigure(D2D1_FIGURE_END_OPEN); }
+    if figure_open { sink.EndFigure(D2D1_FIGURE_END_OPEN); }
             if let Err(e) = sink.Close() { debug_log_d2d(&format!("build_path_geometry: sink.Close error hr={:?}", e)); }
             Some(geom)
         }
