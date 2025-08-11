@@ -37,7 +37,7 @@ pub(crate) fn stroke_text<'a>(
                             let mut x0 = glyph_run.offset() as f64;
                             let mut y0 = (glyph_run.baseline() - metrics.ascent) as f64;
                             let mut w = glyph_run.advance() as f64;
-                            // Use ascent+descent as the base height (line gap unavailable in metrics)
+                            // Base height: ascent + descent (line gap not exposed in metrics)
                             let mut h = metrics.ascent as f64 + metrics.descent as f64;
                             // Apply logical padding (top,right,bottom,left)
                             let pad = &style.brush.padding;

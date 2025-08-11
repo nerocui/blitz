@@ -212,6 +212,7 @@ pub(crate) fn style(
     let current_color = style.clone_color();
     let bg_color = 
         style.get_background().background_color.resolve_to_absolute(&current_color).as_color_color();
+    // Only create a background brush if alpha > 0; use solid color directly (peniko::Brush is enum)
     let bg_brush = (bg_color.components[3] > 0.0).then(|| peniko::Brush::Solid(bg_color));
 
     // Inline background padding & radius: We don't yet have per-span CSS box model in parley.
