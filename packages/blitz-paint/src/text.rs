@@ -31,6 +31,7 @@ pub(crate) fn stroke_text<'a>(
                 let weight: u16 = if style.brush.weight == 0 { 400 } else { style.brush.weight };
                 scene.draw_glyphs(
                     font,
+                    &style.brush.family,
                     font_size,
                     weight,
                     true, // hint

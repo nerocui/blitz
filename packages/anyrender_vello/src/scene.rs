@@ -112,8 +112,25 @@ impl PaintScene for VelloScenePainter<'_> {
         glyph_transform: Option<Affine>,
         glyphs: impl Iterator<Item = anyrender::Glyph>,
     ) {
-        self.inner
-            .draw_glyphs(font)
+            self.inner
+                .draw_glyphs(font)
+                .font_size(font_size)
+                .hint(hint)
+                .normalized_coords(normalized_coords)
+                .brush(brush)
+                .brush_alpha(brush_alpha)
+                .transform(transform)
+                .glyph_transform(glyph_transform)
+                .draw(
+                    style,
+                    glyphs.map(|g: anyrender::Glyph| vello::Glyph {
+                        id: g.id,
+                        x: g.x,
+                        y: g.y,
+                    }),
+                );
+            }
+        }
             .font_size(font_size)
             .hint(hint)
             .normalized_coords(normalized_coords)

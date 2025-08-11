@@ -178,7 +178,7 @@ impl<'a> PaintScene for D2DScenePainter<'a> {
         self.scene.commands.push(Command::FillPath { path: v, brush: brush_rec });
     if self.scene.commands.len() == 1 { vlog!("first command recorded (FillPath)"); }
     }
-    fn draw_glyphs<'b, 's: 'b>(&'s mut self, _font: &'b Font, font_size: f32, font_weight: u16, _hint: bool, _norm: &'b [NormalizedCoord], style: impl Into<StyleRef<'b>>, brush: impl Into<BrushRef<'b>>, brush_alpha: f32, transform: Affine, _glyph_transform: Option<Affine>, glyphs: impl Iterator<Item = Glyph>) {
+    fn draw_glyphs<'b, 's: 'b>(&'s mut self, _font: &'b Font, font_family: &str, font_size: f32, font_weight: u16, _hint: bool, _norm: &'b [NormalizedCoord], style: impl Into<StyleRef<'b>>, brush: impl Into<BrushRef<'b>>, brush_alpha: f32, transform: Affine, _glyph_transform: Option<Affine>, glyphs: impl Iterator<Item = Glyph>) {
     let style_ref: StyleRef<'b> = style.into();
     let brush_color = match brush.into() { BrushRef::Solid(c) => c.with_alpha(c.components[3] * brush_alpha), _ => Color::BLACK };
         let glyph_style = match style_ref {
@@ -207,9 +207,21 @@ impl<'a> PaintScene for D2DScenePainter<'a> {
         }
         let last_adv = if advances.is_empty() { font_size * 0.6 } else { (advances.iter().copied().sum::<f32>() / advances.len() as f32).max(1.0) };
         advances.push(last_adv);
-    let mut fk = FontKey::default();
-    // Clamp weight to 100..900 typical CSS range; default 400.
-    fk.weight = if (100..=900).contains(&font_weight) { font_weight } else { 400 } as u16;
+        let mut fk = FontKey::default();
+    // Map CSS generic families to concrete Windows fonts.
+    let lower = font_family.to_ascii_lowercase();
+    let resolved_family = match lower.as_str() {
+            "monospace" => "Consolas", // or Cascadia Mono if desired
+            "serif" => "Times New Roman",
+            "sans-serif" => "Segoe UI",
+            "system-ui" => "Segoe UI",
+            "cursive" => "Comic Sans MS",
+            "fantasy" => "Segoe UI", // placeholder
+            fam if fam.is_empty() => "Segoe UI",
+            other => other,
+        };
+        fk.family = resolved_family.to_string();
+        fk.weight = if (100..=900).contains(&font_weight) { font_weight } else { 400 } as u16;
     self.scene.commands.push(Command::GlyphRun { glyph_indices, advances, origin: (origin_x, origin_y), size: font_size, style: glyph_style, font: fk, var_coords: Vec::new() });
     }
     fn draw_box_shadow(&mut self, transform: Affine, rect: Rect, brush: Color, radius: f64, std_dev: f64) {

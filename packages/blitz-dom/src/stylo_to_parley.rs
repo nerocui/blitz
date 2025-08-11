@@ -186,6 +186,29 @@ pub(crate) fn style(
     };
 
     let css_weight = font_styles.font_weight.value();
+    // Capture first family name (named or generic keyword) for backend selection
+    let primary_family: std::sync::Arc<str> = families
+        .get(0)
+        .map(|f| match f {
+            parley::FontFamily::Named(n) => n.as_ref().into(),
+            parley::FontFamily::Generic(g) => match g {
+                parley::GenericFamily::Monospace => "monospace".into(),
+                parley::GenericFamily::Serif => "serif".into(),
+                parley::GenericFamily::SansSerif => "sans-serif".into(),
+                parley::GenericFamily::Cursive => "cursive".into(),
+                parley::GenericFamily::Fantasy => "fantasy".into(),
+                parley::GenericFamily::SystemUi => "system-ui".into(),
+                parley::GenericFamily::UiSerif => "serif".into(),
+                parley::GenericFamily::UiSansSerif => "sans-serif".into(),
+                parley::GenericFamily::UiMonospace => "monospace".into(),
+                parley::GenericFamily::UiRounded => "sans-serif".into(),
+                parley::GenericFamily::Emoji => "emoji".into(),
+                parley::GenericFamily::Math => "Cambria Math".into(),
+                parley::GenericFamily::FangSong => "FangSong".into(),
+                _ => "sans-serif".into(),
+            },
+        })
+        .unwrap_or_else(|| "".into());
     parley::TextStyle {
         // font_stack: parley::FontStack::Single(FontFamily::Generic(GenericFamily::SystemUi)),
         font_stack: parley::FontStack::List(Cow::Owned(families)),
@@ -196,7 +219,7 @@ pub(crate) fn style(
         font_variations: parley::FontSettings::List(Cow::Owned(font_variations)),
         font_features: parley::FontSettings::List(Cow::Borrowed(&[])),
         locale: Default::default(),
-    brush: TextBrush::from_id_color_weight(span_id, color, css_weight as u16),
+    brush: TextBrush::from_id_color_weight_family(span_id, color, css_weight as u16, primary_family),
         has_underline: text_decoration_line.contains(TextDecorationLine::UNDERLINE),
         underline_offset: Default::default(),
         underline_size: Default::default(),

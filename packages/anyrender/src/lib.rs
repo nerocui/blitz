@@ -114,6 +114,7 @@ pub trait PaintScene {
     fn draw_glyphs<'a, 's: 'a>(
         &'s mut self,
         font: &'a Font,
+        font_family: &str,
         font_size: f32,
         font_weight: u16,
         hint: bool,

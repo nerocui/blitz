@@ -119,8 +119,18 @@ impl PaintScene for VelloCpuScenePainter {
         glyph_transform: Option<Affine>,
         glyphs: impl Iterator<Item = anyrender::Glyph>,
     ) {
-        self.0.set_transform(transform);
-        self.0.set_paint(brush_ref_to_paint_type(brush.into()));
+            self.0.set_transform(transform);
+            self.0.set_paint(brush_ref_to_paint_type(brush.into()));
+            self.0
+                .glyph_run(font)
+                .font_size(font_size)
+                .hint(hint)
+                .normalized_coords(normalized_coords)
+                .glyph_transform(glyph_transform.unwrap_or_default())
+                .draw(
+                    style,
+                    glyphs.map(into_vello_cpu_glyph),
+                );
 
         fn into_vello_cpu_glyph(g: anyrender::Glyph) -> vello_cpu::Glyph {
             vello_cpu::Glyph {
