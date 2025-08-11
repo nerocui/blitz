@@ -185,6 +185,7 @@ pub(crate) fn style(
         stylo::OverflowWrap::Anywhere => parley::OverflowWrap::Anywhere,
     };
 
+    let css_weight = font_styles.font_weight.value();
     parley::TextStyle {
         // font_stack: parley::FontStack::Single(FontFamily::Generic(GenericFamily::SystemUi)),
         font_stack: parley::FontStack::List(Cow::Owned(families)),
@@ -195,7 +196,7 @@ pub(crate) fn style(
         font_variations: parley::FontSettings::List(Cow::Owned(font_variations)),
         font_features: parley::FontSettings::List(Cow::Borrowed(&[])),
         locale: Default::default(),
-        brush: TextBrush::from_id_and_color(span_id, color),
+    brush: TextBrush::from_id_color_weight(span_id, color, css_weight as u16),
         has_underline: text_decoration_line.contains(TextDecorationLine::UNDERLINE),
         underline_offset: Default::default(),
         underline_size: Default::default(),

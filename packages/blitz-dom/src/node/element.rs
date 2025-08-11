@@ -525,27 +525,30 @@ impl std::fmt::Debug for ListItemLayout {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
-/// Parley Brush type for Blitz which contains a `peniko::Brush` and a Blitz node id
+#[derive(Debug, Clone, PartialEq)]
+/// Parley Brush type for Blitz which contains a `peniko::Brush`, node id, and font weight hint
 pub struct TextBrush {
     /// The node id for the span
     pub id: usize,
     /// Peniko brush for the span (represents text color)
     pub brush: peniko::Brush,
+    /// CSS numeric font weight (100..900); 400 normal.
+    pub weight: u16,
+}
+
+impl Default for TextBrush {
+    fn default() -> Self { Self { id: 0, brush: peniko::Brush::Solid(peniko::Color::BLACK), weight: 400 } }
 }
 
 impl TextBrush {
     pub(crate) fn from_peniko_brush(brush: peniko::Brush) -> Self {
-        Self { id: 0, brush }
+        Self { id: 0, brush, weight: 400 }
     }
     pub(crate) fn from_color(color: AlphaColor<Srgb>) -> Self {
         Self::from_peniko_brush(peniko::Brush::Solid(color))
     }
-    pub(crate) fn from_id_and_color(id: usize, color: AlphaColor<Srgb>) -> Self {
-        Self {
-            id,
-            brush: peniko::Brush::Solid(color),
-        }
+    pub(crate) fn from_id_color_weight(id: usize, color: AlphaColor<Srgb>, weight: u16) -> Self {
+        Self { id, brush: peniko::Brush::Solid(color), weight }
     }
 }
 

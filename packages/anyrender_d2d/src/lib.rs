@@ -59,7 +59,7 @@ enum Command {
     FillPath { path: Vec<PathEl>, brush: RecordedBrush },
     StrokePath { path: Vec<PathEl>, brush: RecordedBrush, width: f64 },
     BoxShadow { rect: Rect, color: Color, radius: f64, std_dev: f64, inset: bool },
-    GlyphRun { glyph_indices: Vec<u16>, advances: Vec<f32>, origin: (f32,f32), size: f32, style: GlyphRenderStyle },
+    GlyphRun { glyph_indices: Vec<u16>, advances: Vec<f32>, origin: (f32,f32), size: f32, style: GlyphRenderStyle, font: FontKey, var_coords: Vec<NormalizedCoord> },
 }
 
 #[derive(Clone)]
@@ -73,6 +73,19 @@ enum RecordedBrush {
     Solid(Color),
     Gradient(RecordedGradient),
     Image(RecordedImage),
+}
+
+// Key identifying a font face request (initially only default Segoe UI is used until full plumbing).
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct FontKey {
+    family: String,
+    weight: u16,   // 100-900 CSS weights
+    stretch: u8,   // map to DWRITE_FONT_STRETCH_* (1..=9)
+    italic: bool,
+}
+
+impl FontKey {
+    fn default() -> Self { Self { family: "Segoe UI".to_string(), weight: 400, stretch: 5, italic: false } } // stretch=5 -> normal
 }
 
 #[derive(Clone)]
@@ -165,7 +178,7 @@ impl<'a> PaintScene for D2DScenePainter<'a> {
         self.scene.commands.push(Command::FillPath { path: v, brush: brush_rec });
     if self.scene.commands.len() == 1 { vlog!("first command recorded (FillPath)"); }
     }
-    fn draw_glyphs<'b, 's: 'b>(&'s mut self, _font: &'b Font, font_size: f32, _hint: bool, _norm: &'b [NormalizedCoord], style: impl Into<StyleRef<'b>>, brush: impl Into<BrushRef<'b>>, brush_alpha: f32, transform: Affine, _glyph_transform: Option<Affine>, glyphs: impl Iterator<Item = Glyph>) {
+    fn draw_glyphs<'b, 's: 'b>(&'s mut self, _font: &'b Font, font_size: f32, font_weight: u16, _hint: bool, _norm: &'b [NormalizedCoord], style: impl Into<StyleRef<'b>>, brush: impl Into<BrushRef<'b>>, brush_alpha: f32, transform: Affine, _glyph_transform: Option<Affine>, glyphs: impl Iterator<Item = Glyph>) {
     let style_ref: StyleRef<'b> = style.into();
     let brush_color = match brush.into() { BrushRef::Solid(c) => c.with_alpha(c.components[3] * brush_alpha), _ => Color::BLACK };
         let glyph_style = match style_ref {
@@ -194,7 +207,10 @@ impl<'a> PaintScene for D2DScenePainter<'a> {
         }
         let last_adv = if advances.is_empty() { font_size * 0.6 } else { (advances.iter().copied().sum::<f32>() / advances.len() as f32).max(1.0) };
         advances.push(last_adv);
-        self.scene.commands.push(Command::GlyphRun { glyph_indices, advances, origin: (origin_x, origin_y), size: font_size, style: glyph_style });
+    let mut fk = FontKey::default();
+    // Clamp weight to 100..900 typical CSS range; default 400.
+    fk.weight = if (100..=900).contains(&font_weight) { font_weight } else { 400 } as u16;
+    self.scene.commands.push(Command::GlyphRun { glyph_indices, advances, origin: (origin_x, origin_y), size: font_size, style: glyph_style, font: fk, var_coords: Vec::new() });
     }
     fn draw_box_shadow(&mut self, transform: Affine, rect: Rect, brush: Color, radius: f64, std_dev: f64) {
         // Apply only translation components of the transform (common case in current usage).
@@ -240,6 +256,7 @@ pub struct D2DWindowRenderer {
     d2d_ctx: Option<ID2D1DeviceContext>,
     dwrite_factory: Option<IDWriteFactory>,
     dwrite_font_face: Option<IDWriteFontFace>,
+    font_face_cache: FxHashMap<FontKey, IDWriteFontFace>,
     // caches
     gradient_cache: FxHashMap<u64, ID2D1Brush>,
     image_cache: FxHashMap<u64, ID2D1Bitmap>,
@@ -257,7 +274,7 @@ pub struct D2DWindowRenderer {
 }
 
 impl D2DWindowRenderer {
-    pub fn new() -> Self { Self { swapchain: None, d3d_device: None, d2d_factory: None, d2d_device: None, d2d_ctx: None, dwrite_factory: None, dwrite_font_face: None, gradient_cache: FxHashMap::default(), image_cache: FxHashMap::default(), shadow_cache: FxHashMap::default(), shadow_cache_order: std::collections::VecDeque::new(), gaussian_blur_effect: None, scene: D2DScene::default(), width: 1, height: 1, active: false, debug_shadow_logs: 0, last_command_count: 0, backbuffer_bitmap: None } }
+    pub fn new() -> Self { Self { swapchain: None, d3d_device: None, d2d_factory: None, d2d_device: None, d2d_ctx: None, dwrite_factory: None, dwrite_font_face: None, font_face_cache: FxHashMap::default(), gradient_cache: FxHashMap::default(), image_cache: FxHashMap::default(), shadow_cache: FxHashMap::default(), shadow_cache_order: std::collections::VecDeque::new(), gaussian_blur_effect: None, scene: D2DScene::default(), width: 1, height: 1, active: false, debug_shadow_logs: 0, last_command_count: 0, backbuffer_bitmap: None } }
 
     pub fn last_command_count(&self) -> u32 { self.last_command_count }
 
@@ -448,42 +465,42 @@ impl D2DWindowRenderer {
                         ctx.PopAxisAlignedClip();
                         vlog!("PopLayer depth={}", clip_depth);
                     }
-            Command::BoxShadow { rect, color, radius, std_dev, inset } => {
+                    Command::BoxShadow { rect, color, radius, std_dev, inset } => {
                         // Allow disabling shadows for isolation (BLITZ_DISABLE_SHADOWS=1)
                         if std::env::var("BLITZ_DISABLE_SHADOWS").map(|v| v=="1" || v.eq_ignore_ascii_case("true")).unwrap_or(false) { continue; } // keep one isolation flag
                         if inset && disable_inset_shadows { continue; }
                         if self.debug_shadow_logs < 8 { vlog!("BoxShadow{} rect=({}, {}, {}, {}) r={} sd={} a={:.3}", if inset {"(inset)"} else {""}, rect.x0, rect.y0, rect.x1, rect.y1, radius, std_dev, color.components[3]); self.debug_shadow_logs += 1; }
-            if inset { self.draw_inset_gaussian_box_shadow(&ctx, rect, color, radius, std_dev); }
-            else {
-                if recreate_effect_per_shadow { self.gaussian_blur_effect = None; }
-                self.draw_gaussian_box_shadow(&ctx, rect, color, radius, std_dev);
-            }
+                        if inset { self.draw_inset_gaussian_box_shadow(&ctx, rect, color, radius, std_dev); }
+                        else {
+                            if recreate_effect_per_shadow { self.gaussian_blur_effect = None; }
+                            self.draw_gaussian_box_shadow(&ctx, rect, color, radius, std_dev);
+                        }
                     }
-                    Command::GlyphRun { glyph_indices, advances, origin, size, style } => {
+                    Command::GlyphRun { glyph_indices, advances, origin, size, style, font, var_coords: _ } => {
                         if disable_text { continue; }
-                        if let Some(face) = &self.dwrite_font_face {
-                            if !glyph_indices.is_empty() {
-                                // Stroke not yet implemented (outline path); keep width for future use.
-                                let (color, _stroke_width_opt) = match style {
+                        // Resolve font face via cache, fallback to default face if not yet available.
+                        let face_opt = self.get_or_create_font_face(&font).or_else(|| self.dwrite_font_face.clone());
+                        if let Some(face) = face_opt {
+                            if !glyph_indices.is_empty() && advances.len() == glyph_indices.len() {
+                                let (color, stroke_width_opt) = match style {
                                     GlyphRenderStyle::Fill { color } => (color, None),
                                     GlyphRenderStyle::Stroke { color, width } => (color, Some(width)),
                                 };
                                 let brush = self.create_solid_brush(color);
-                                // Use recorded advances (already derived). Fallback: if lengths mismatch, bail.
-                                if advances.len() != glyph_indices.len() { continue; }
-                                let run = DWRITE_GLYPH_RUN {
-                                    fontFace: std::mem::ManuallyDrop::new(Some(face.clone())),
-                                    fontEmSize: size,
-                                    glyphCount: glyph_indices.len() as u32,
-                                    glyphIndices: glyph_indices.as_ptr(),
-                                    glyphAdvances: advances.as_ptr(),
-                                    glyphOffsets: std::ptr::null(),
-                                    isSideways: false.into(),
-                                    bidiLevel: 0,
-                                };
-                                let origin_pt = D2D_POINT_2F { x: origin.0, y: origin.1 };
-                                // Stroke variant currently falls back to fill rendering until outline support is added.
-                                let _ = ctx.DrawGlyphRun(origin_pt, &run, None, &brush, DWRITE_MEASURING_MODE_NATURAL);
+                                if let Some(stroke_width) = stroke_width_opt {
+                                    if let Some(geom) = self.build_glyph_outline_geometry(&face, size, &glyph_indices, &advances) {
+                                        let _ = ctx.DrawGeometry(&geom, &brush, stroke_width, None);
+                                    } else {
+                                        // Fallback: fill if outline extraction fails
+                                        let run = DWRITE_GLYPH_RUN { fontFace: std::mem::ManuallyDrop::new(Some(face.clone())), fontEmSize: size, glyphCount: glyph_indices.len() as u32, glyphIndices: glyph_indices.as_ptr(), glyphAdvances: advances.as_ptr(), glyphOffsets: std::ptr::null(), isSideways: false.into(), bidiLevel: 0 };
+                                        let origin_pt = D2D_POINT_2F { x: origin.0, y: origin.1 };
+                                        let _ = ctx.DrawGlyphRun(origin_pt, &run, None, &brush, DWRITE_MEASURING_MODE_NATURAL);
+                                    }
+                                } else {
+                                    let run = DWRITE_GLYPH_RUN { fontFace: std::mem::ManuallyDrop::new(Some(face.clone())), fontEmSize: size, glyphCount: glyph_indices.len() as u32, glyphIndices: glyph_indices.as_ptr(), glyphAdvances: advances.as_ptr(), glyphOffsets: std::ptr::null(), isSideways: false.into(), bidiLevel: 0 };
+                                    let origin_pt = D2D_POINT_2F { x: origin.0, y: origin.1 };
+                                    let _ = ctx.DrawGlyphRun(origin_pt, &run, None, &brush, DWRITE_MEASURING_MODE_NATURAL);
+                                }
                             }
                         }
                     }
@@ -504,6 +521,61 @@ impl D2DWindowRenderer {
             let col = D2D1_COLOR_F { r: color.components[0] as f32, g: color.components[1] as f32, b: color.components[2] as f32, a: color.components[3] as f32 };
             ctx.CreateSolidColorBrush(&col, None).unwrap()
         }
+    }
+
+    // Resolve (and cache) a font face for the provided key using DirectWrite system collection.
+    fn get_or_create_font_face(&mut self, key: &FontKey) -> Option<IDWriteFontFace> {
+        if let Some(face) = self.font_face_cache.get(key) { return Some(face.clone()); }
+        let factory = self.dwrite_factory.clone()?;
+        unsafe {
+            let mut collection_opt: Option<IDWriteFontCollection> = None;
+            if factory.GetSystemFontCollection(&mut collection_opt, false).is_ok() {
+                if let Some(collection) = collection_opt {
+                    let mut idx = 0u32; let mut exists = false.into();
+                    if collection.FindFamilyName(&windows::core::HSTRING::from(&key.family), &mut idx, &mut exists).is_ok() && exists.as_bool() {
+                        if let Ok(family) = collection.GetFontFamily(idx) {
+                            let weight = DWRITE_FONT_WEIGHT(key.weight as i32);
+                            // Map stretch (1..=9) directly; default normal (5)
+                            let stretch = DWRITE_FONT_STRETCH(key.stretch as i32);
+                            let style = if key.italic { DWRITE_FONT_STYLE_ITALIC } else { DWRITE_FONT_STYLE_NORMAL };
+                            if let Ok(font) = family.GetFirstMatchingFont(weight, stretch, style) {
+                                if let Ok(face) = font.CreateFontFace() {
+                                    self.font_face_cache.insert(key.clone(), face.clone());
+                                    return Some(face);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    // Build outline geometry for glyph run; returns a path geometry or None on failure.
+    fn build_glyph_outline_geometry(&self, face: &IDWriteFontFace, em_size: f32, glyph_indices: &[u16], advances: &[f32]) -> Option<ID2D1PathGeometry> {
+        if glyph_indices.is_empty() { return None; }
+        let factory = self.d2d_factory.as_ref()?;
+        unsafe {
+            let path_geom1 = factory.CreatePathGeometry().ok()?;
+            let path_geom: ID2D1PathGeometry = path_geom1.cast().ok()?;
+            let sink: ID2D1GeometrySink = path_geom.Open().ok()?; // full geometry sink
+            // Cast to simplified geometry sink interface expected by DirectWrite
+            if let Ok(simple) = sink.cast::<ID2D1SimplifiedGeometrySink>() {
+                let hr = face.GetGlyphRunOutline(
+                    em_size,
+                    glyph_indices.as_ptr(),
+                    Some(advances.as_ptr()),              // advances pointer
+                    None,                // no glyph offsets
+                    glyph_indices.len() as u32,
+                    false,                           // isSideways
+                    false,                           // isRightToLeft
+                    &simple,                         // geometry sink
+                );
+                if hr.is_ok() { let _ = sink.Close(); return Some(path_geom); }
+            }
+        }
+        None
     }
 
     fn get_or_create_brush(&mut self, recorded: &RecordedBrush) -> ID2D1Brush {

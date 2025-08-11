@@ -115,6 +115,7 @@ pub trait PaintScene {
         &'s mut self,
         font: &'a Font,
         font_size: f32,
+        font_weight: u16,
         hint: bool,
         normalized_coords: &'a [NormalizedCoord],
         style: impl Into<StyleRef<'a>>,

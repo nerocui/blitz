@@ -27,9 +27,12 @@ pub(crate) fn stroke_text<'a>(
                     .skew()
                     .map(|angle| Affine::skew(angle.to_radians().tan() as f64, 0.0));
 
+                // Use weight propagated via TextBrush; treat 0 as normal (400)
+                let weight: u16 = if style.brush.weight == 0 { 400 } else { style.brush.weight };
                 scene.draw_glyphs(
                     font,
                     font_size,
+                    weight,
                     true, // hint
                     run.normalized_coords(),
                     Fill::NonZero,
