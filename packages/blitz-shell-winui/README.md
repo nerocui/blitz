@@ -26,6 +26,10 @@ WinUI / WinAppSDK host shell for Blitz consumable from C#. Renders into a `Micro
 - Device lost handling & renderer resource reinit.
 - Cache eviction policies (shadows, gradients, images) & metrics.
 - Sample WinUI3 app polish & usage docs.
+- Telemetry / diagnostics surface (frame timings, cache stats) gated behind feature/env.
+- Optional removal / gating of unused rendering backends for slimmer shell distribution.
+- API for setting verbose logging from C# instead of env-only.
+- Future: effect graph / filter APIs once backend abstraction lands.
 
 See `docs/PROGRESS.md` and `../anyrender_d2d/README.md` for full details and current gaps.
 
@@ -36,3 +40,17 @@ See `docs/PROGRESS.md` and `../anyrender_d2d/README.md` for full details and cur
 - Avoid introducing any HWND-based interfaces; interact only via the `SwapChainPanel` WinRT object.
 - Do not commit generated `*.winmd`, `*.dll`, `*.pdb` artifacts (now gitignored).
 - Keep Direct2D-specific types encapsulated; shell boundary remains WinRT + neutral abstractions.
+
+## Known Limitations (Aug 2025)
+
+- No device lost recovery logic wired (backend lacks reinit path exposure).
+- Text shaping limited (basic glyph runs, no fallback/shaping features).
+- Blend/composite & gradient extend modes not yet surfaced.
+- Cache eviction & metrics not exposed; caches may grow unbounded in long sessions.
+- Verbose logging control only via environment variable (no runtime API yet).
+
+## Future Integration Points
+
+- Provide C# API to toggle verbose logging & query stats.
+- Expose shadow spread parameters once backend implements them.
+- Add optional in-app debug overlay (frame time, command counts, cache sizes).

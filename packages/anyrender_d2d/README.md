@@ -59,6 +59,9 @@ The codebase has been cleaned so that only necessary logs remain by default; dee
 6. Device lost handling (`D2DERR_RECREATE_TARGET`) plus resource reinit path.
 7. High DPI audit (DIP vs pixel consistency for glyph origins & shadow padding).
 8. Optional performance / telemetry hooks (encode, playback, blur timings).
+9. Shadow spread / inner spread parameterization (current blur only, no spread expansion/contraction controls).
+10. Complete adoption of `vlog!` macro (eliminate residual direct `VERBOSE_LOG` checks if any) & resolve lingering compiler warnings (dead variants, unused assignments).
+11. Basic unit tests: geometry figure closure, shadow cache hit path, glyph advance preservation.
 
 ## Future Improvements (Longer Term)
 
@@ -77,6 +80,8 @@ The codebase has been cleaned so that only necessary logs remain by default; dee
 - Single default system font (Segoe UI) regardless of requested family.
 - Caches (gradient / image / shadow) lack eviction policy.
 - Sweep gradient still approximation.
+- No explicit shadow spread control (only Gaussian blur sigma).
+- No device context lost recovery path yet.
 
 ---
 
