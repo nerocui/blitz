@@ -9,26 +9,30 @@ WinUI / WinAppSDK host shell for Blitz consumable from C#. Renders into a `Micro
 - Use the `anyrender_d2d` backend to replay recorded Blitz scene commands (paths, gradients, images, text) straight into the swapchain.
 - Translate host pointer / keyboard events to Blitz DOM events.
 
-## Implementation Status (Highlights)
+## Implementation Status (Aug 2025)
 
-- WinRT IDL -> midlrt -> winmd -> Rust bindings (generated `bindings.rs`).
+- WinRT IDL -> midlrt -> winmd -> Rust bindings pipeline (generated `bindings.rs`, never hand edit).
 - Activation factory + runtime class implemented in Rust.
-- Direct2D renderer integrated (rects, paths, layers, transforms, solid/gradient/image brushes, basic text, placeholder shadows).
-- Build script gracefully skips WinMD regeneration if `midlrt` missing (advise using VS DevShell).
+- Direct2D backend integration (paths, layers, transforms, solid / gradient / image brushes, glyph runs, real Gaussian blur box shadows (outset & inset)).
+- Shadow rendering uses temporary D2D device contexts (no mid-frame target mutation) for stability.
+- Build script gracefully skips WinMD regeneration if `midlrt` missing (recommend VS DevShell task).
+- Verbose logging opt-in via `BLITZ_VERBOSE=1` environment variable (clean default output).
 
-## Roadmap (Abbreviated)
+## Roadmap (Next Steps)
 
-- Gaussian blur box shadows via D2D effect.
-- Blend/composite mode mapping.
-- Gradient spread modes & accurate sweep gradient.
-- Proper text shaping (DirectWrite font collection from embedded fonts) & fallback.
-- Device lost handling & cache eviction.
-- Sample WinUI3 C# application demonstrating usage.
+- Blend / composite mode mapping.
+- Gradient extend modes & improved sweep (angular) gradient.
+- Proper text shaping (embedded font collection, fallback, weight/style selection).
+- Device lost handling & renderer resource reinit.
+- Cache eviction policies (shadows, gradients, images) & metrics.
+- Sample WinUI3 app polish & usage docs.
 
 See `docs/PROGRESS.md` and `../anyrender_d2d/README.md` for full details and current gaps.
 
 ## Contributing Notes
 
-- Always run cargo checks from a VS 2022 DevShell PowerShell so `midlrt` is on PATH (use provided VS Code task).
+- Always run cargo checks from a VS 2022 DevShell PowerShell so `midlrt` & SDK tools are on PATH (use provided VS Code task).
 - Never edit `src/bindings.rs` by hand.
-- Avoid introducing any HWND-based interfaces; keep the contract purely in terms of the `SwapChainPanel` WinRT object.
+- Avoid introducing any HWND-based interfaces; interact only via the `SwapChainPanel` WinRT object.
+- Do not commit generated `*.winmd`, `*.dll`, `*.pdb` artifacts (now gitignored).
+- Keep Direct2D-specific types encapsulated; shell boundary remains WinRT + neutral abstractions.

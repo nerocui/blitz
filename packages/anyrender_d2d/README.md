@@ -2,7 +2,7 @@
 
 Direct2D backend for the `anyrender` abstraction used by Blitz. It renders directly into an existing IDXGISwapChain1 (e.g. a WinUI `SwapChainPanel` composition swapchain) without requiring an HWND or wgpu.
 
-## Current Capabilities
+## Current Capabilities (Aug 2025)
 
 - Scene recording + playback (arbitrary path fill & stroke; rectangle fast path intentionally removed to preserve rounded corners)
 - Solid / linear / radial (sweep approximated) gradients with caching
@@ -10,7 +10,7 @@ Direct2D backend for the `anyrender` abstraction used by Blitz. It renders direc
 - Layers via axis‑aligned clip stack (Push/PopLayer)
 - Per‑command baked translation transforms
 - DirectWrite glyph run submission (Segoe UI default font) with per‑glyph advances, fill and (future) stroke styles
-- True Gaussian blur box shadows (outset & inset) with rounded corner support and bitmap cache (LRU)
+- True Gaussian blur box shadows (outset & inset) via D2D GaussianBlur effect, temporary device contexts (no mid-frame target retarget), rounded corner support, bitmap cache (LRU heuristics WIP)
 - Border radius respected for fills, strokes, and shadows
 - Runtime‑controllable verbose diagnostics (disabled by default)
 
@@ -30,7 +30,7 @@ After introducing Gaussian blur shadows (outset + inset) and extensive diagnosti
 4. Logging Hygiene: Per‑command logs, clip push/pop, and shadow diagnostics are now gated behind a runtime verbose flag to keep default frames lightweight.
 
 ### Outcome
-`EndDraw` now returns `S_OK`; all shapes, text, and both inset/outset shadows render correctly with preserved border radii. No regression in performance-critical paths was observed (temporary contexts are short‑lived and only per unique shadow render, amortized by cache reuse).
+`EndDraw` now returns `S_OK`; all shapes, text, and both inset/outset shadows render correctly with preserved border radii. No regression in performance-critical paths: temporary contexts are short‑lived (per unique uncached shadow) and shadow cache reuse amortizes cost.
 
 ### Lessons
 - Avoid mutating the primary device context target mid‑frame; prefer auxiliary contexts or command lists for intermediate surfaces.
@@ -39,24 +39,26 @@ After introducing Gaussian blur shadows (outset + inset) and extensive diagnosti
 
 The codebase has been cleaned so that only necessary logs remain by default; deep diagnostics require opting in (see Verbose Logging section).
 
-## Completed (This Session)
+## Completed (Recent Session)
 
-- DirectWrite integration (basic font face: Segoe UI; glyph indices rendered correctly).
-- Per-glyph advance handling (spacing fidelity relative to upstream layout data).
-- Command abstraction updated to carry glyph style (fill/stroke placeholder).
-- Removed obsolete text format caching and naive text path code.
-- Logging & swapchain/device creation robustness improvements.
+- DirectWrite integration (Segoe UI glyph runs; per‑glyph advances preserved).
+- True Gaussian blur shadows (outset + inset) with temp device contexts and cache.
+- Eliminated mid‑frame primary context `SetTarget` usage (stability improvement).
+- Explicit path figure closure & error logging.
+- Verbose logging macro (`vlog!`) + pruning of noisy instrumentation.
+- Removed obsolete text format caching and naive text path fallback.
+- Added ignore rules for generated WinRT artifacts upstream (shell crate).
 
 ## Remaining TODO (Short Term)
 
 1. Font selection & style mapping (family / weight / stretch / italic) with font face cache.
 2. Text stroke (glyph outlines via `GetGlyphRunOutline`) & text decorations.
 3. Blend / composite mode mapping (peniko::BlendMode -> D2D1_COMPOSITE_MODE / blend state) with graceful fallbacks.
-4. Gradient extend modes (Repeat / Reflect) and improved sweep gradient emulation.
-5. Cache policies & stats: gradient/image cache eviction + shadow cache sizing heuristic.
-6. Device lost handling (`D2DERR_RECREATE_TARGET`) and resource reinitialization path.
-7. High DPI audit (consistent DIP vs pixel usage for glyph origins & shadow padding).
-8. Optional performance / telemetry hooks (timings for scene encode & playback).
+4. Gradient extend modes (Repeat / Reflect) and improved sweep / true angular gradient.
+5. Cache policies & stats: gradient/image/shadow cache eviction & sizing heuristics.
+6. Device lost handling (`D2DERR_RECREATE_TARGET`) plus resource reinit path.
+7. High DPI audit (DIP vs pixel consistency for glyph origins & shadow padding).
+8. Optional performance / telemetry hooks (encode, playback, blur timings).
 
 ## Future Improvements (Longer Term)
 
@@ -68,13 +70,13 @@ The codebase has been cleaned so that only necessary logs remain by default; dee
 - Clip Optimization: Combine consecutive identical clips; detect redundant push/pop pairs.
 - Optional WIC / Image Scaling Quality Modes: Higher quality bitmap resampling (Fant / Cubic) for large downscales.
 
-## Known Limitations (Reiterated)
+## Known Limitations (Current)
 
-- Stroke text not yet visually stroked (renders as fill).
-- No real blur for shadows.
-- Limited blend/extend mode coverage.
+- Stroke text not yet visually stroked (renders as fill only).
+- Limited blend / extend mode coverage.
 - Single default system font (Segoe UI) regardless of requested family.
-- Unbounded caches.
+- Caches (gradient / image / shadow) lack eviction policy.
+- Sweep gradient still approximation.
 
 ---
 
