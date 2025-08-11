@@ -55,6 +55,48 @@
   .text-samples ul, .text-samples ol { padding-left:26px; }
   .text-samples ul ul { margin-top:6px; }
   .uline { text-decoration: underline wavy #fff; }
+  /* SVG sample styling */
+  .svg-samples { margin:64px 0 96px; background:rgba(0,0,0,.25); padding:28px 32px 40px; border-radius:24px; }
+  .svg-samples h2 { margin:0 0 20px; }
+  .svg-grid { display:flex; flex-wrap:wrap; gap:32px; }
+  .svg-card { background:rgba(255,255,255,.08); padding:12px 16px 18px; border-radius:18px; backdrop-filter:blur(4px); width:240px; box-sizing:border-box; }
+  .svg-card svg { width:100%; height:140px; display:block; }
+  .svg-card p { font-size:12px; margin:6px 0 0; opacity:.8; line-height:1.25; }
+  /* Extended HTML showcase styling */
+  .showcase-anchor { position:fixed; top:8px; right:8px; background:rgba(0,0,0,.45); padding:8px 12px; border-radius:12px; font-size:12px; backdrop-filter:blur(8px); max-width:260px; line-height:1.35; }
+  .showcase-anchor a { color:#ffe08a; text-decoration:none; display:inline-block; margin:2px 6px 2px 0; }
+  .showcase { margin:72px 0 96px; background:rgba(255,255,255,.08); padding:36px 40px 64px; border-radius:32px; backdrop-filter:blur(8px); }
+  .showcase h2 { margin-top:0; }
+  .tag-cluster { display:flex; flex-wrap:wrap; gap:8px; font-size:12px; }
+  .badge { background:rgba(0,0,0,.35); padding:4px 8px; border-radius:8px; }
+  .grid-2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:28px; }
+  .grid-3 { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:24px; }
+  figure { margin:0; }
+  figure img { max-width:100%; border-radius:12px; display:block; }
+  figcaption { font-size:12px; opacity:.75; margin-top:4px; }
+  table.demo { border-collapse:collapse; width:100%; font-size:13px; }
+  table.demo th, table.demo td { border:1px solid rgba(255,255,255,.25); padding:6px 8px; text-align:left; }
+  table.demo caption { text-align:left; font-weight:600; margin:0 0 6px; }
+  dl { display:grid; grid-template-columns: max-content 1fr; gap:4px 16px; font-size:13px; }
+  dt { font-weight:600; }
+  address { font-style:normal; font-size:13px; background:rgba(0,0,0,.35); padding:8px 12px; border-radius:10px; line-height:1.4; }
+  details { background:rgba(0,0,0,.35); padding:10px 14px 14px; border-radius:14px; margin:12px 0; }
+  summary { cursor:pointer; font-weight:600; }
+  dialog { border:none; padding:20px 24px 28px; border-radius:20px; background:linear-gradient(135deg,#222,#444); color:#fff; max-width:420px; }
+  dialog::backdrop { background:rgba(0,0,0,.6); }
+  .form-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:20px; }
+  fieldset { border:1px solid rgba(255,255,255,.35); padding:16px 18px 20px; border-radius:16px; }
+  legend { padding:0 8px; font-weight:600; }
+  label { display:block; font-size:12px; text-transform:uppercase; letter-spacing:.5px; margin:0 0 4px; opacity:.75; }
+  input, select, textarea, button { width:100%; box-sizing:border-box; border-radius:10px; border:1px solid rgba(255,255,255,.35); background:rgba(0,0,0,.35); color:#fff; padding:8px 10px; font:inherit; }
+  button { cursor:pointer; background:linear-gradient(135deg,#ff5f6d,#ffc371); color:#222; font-weight:600; border:none; }
+  button:active { transform:translateY(1px); }
+  progress, meter { width:100%; height:18px; }
+  canvas { background:#222; border-radius:12px; display:block; width:100%; max-width:320px; aspect-ratio:4/3; }
+  .ruby-sample ruby { font-size:24px; }
+  .code-inline-set span { background:rgba(0,0,0,.35); padding:2px 6px; border-radius:6px; font-size:12px; }
+  template { display:none; }
+  .visually-hidden { position:absolute; left:-10000px; top:auto; width:1px; height:1px; overflow:hidden; }
   </style>
 </head>
 <body>
@@ -118,6 +160,304 @@
     <div class="shadow c1"><strong>warm</strong><span>colored glow</span></div>
     <div class="shadow c2"><strong>cool</strong><span>colored glow</span></div>
   </div>
+  </section>
+  <section class="svg-samples">
+    <h2>Inline SVG Samples</h2>
+    <div class="svg-grid">
+      <div class="svg-card">
+        <svg viewBox="0 0 120 120" role="img" aria-label="Shapes">
+          <rect x="4" y="4" width="50" height="50" rx="8" fill="#ffffff22" stroke="#fff" stroke-width="2" />
+          <circle cx="86" cy="30" r="24" fill="url(#grad1)" stroke="#fff" stroke-width="2" />
+          <path d="M10 90 L50 70 L90 110" fill="none" stroke="#ffe08a" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" />
+          <defs>
+            <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#ff5f6d" />
+              <stop offset="100%" stop-color="#ffc371" />
+            </linearGradient>
+          </defs>
+        </svg>
+        <p>Basic shapes, gradient fill, rounded stroke joins.</p>
+      </div>
+      <div class="svg-card">
+        <svg viewBox="0 0 140 140" role="img" aria-label="Text & Stroke">
+          <rect x="4" y="4" width="132" height="132" rx="20" fill="#ffffff12" stroke="#ffffff55" />
+          <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="Segoe UI, system-ui, sans-serif" font-size="20" fill="#fff" stroke="#000" stroke-width="1" paint-order="stroke" letter-spacing="1">Blitz</text>
+          <path d="M20 110 Q70 60 120 110" fill="none" stroke="#ffeb3b" stroke-width="4" stroke-dasharray="6 4" />
+        </svg>
+        <p>SVG text with stroke + dashed quadratic curve.</p>
+      </div>
+      <div class="svg-card">
+        <svg viewBox="0 0 120 120" role="img" aria-label="Arc & Markers">
+          <defs>
+            <marker id="dot" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6">
+              <circle cx="5" cy="5" r="5" fill="#ff5f6d" />
+            </marker>
+          </defs>
+          <path d="M10 100 A50 50 0 0 1 110 20" fill="none" stroke="#60c0ff" stroke-width="5" marker-start="url(#dot)" marker-end="url(#dot)" />
+        </svg>
+        <p>Arc path with gradient-like coloring potential & markers.</p>
+      </div>
+    </div>
+  </section>
+  <!-- Comprehensive HTML Element Showcase -->
+  <div class="showcase-anchor">
+    <strong>Showcase Sections:</strong><br>
+    <a href="#headings">Headings</a><a href="#text-semantics">Text</a><a href="#edits">Edits</a><a href="#lists">Lists</a><a href="#definition">Definitions</a><a href="#tables">Tables</a><a href="#media">Media</a><a href="#embedded">Embedded</a><a href="#forms">Forms</a><a href="#interactive">Interactive</a><a href="#ruby">Ruby</a><a href="#misc">Misc</a>
+  </div>
+  <section class="showcase" id="headings">
+    <h2>Headings & Sectioning</h2>
+    <div class="grid-2">
+      <div>
+        <h1>h1 Heading</h1>
+        <h2>h2 Subheading</h2>
+        <h3>h3</h3>
+        <h4>h4</h4>
+        <h5>h5</h5>
+        <h6>h6</h6>
+      </div>
+      <div>
+        <article style="background:rgba(0,0,0,.35); padding:12px 16px; border-radius:16px;">
+          <header><h3 style="margin:0 0 4px;">article header</h3><p style="margin:0;font-size:12px;opacity:.75;">(header element)</p></header>
+          <section style="margin:8px 0 12px;">
+            <h4 style="margin:0 0 4px;">section</h4>
+            <p style="margin:0;font-size:13px;">Semantic grouping of thematic content.</p>
+          </section>
+          <aside style="font-size:12px; opacity:.8;">aside: side notes.</aside>
+          <footer style="margin-top:8px; font-size:11px; opacity:.6;">article footer</footer>
+        </article>
+      </div>
+    </div>
+    <p><code>&lt;main&gt;</code> element context demonstration:</p>
+    <main style="display:block; background:rgba(0,0,0,.35); padding:12px 16px; border-radius:16px; font-size:13px;">This region represents the main content landmark.</main>
+    <nav style="margin-top:16px; font-size:13px; background:rgba(0,0,0,.35); padding:10px 14px; border-radius:14px;">nav: <a href="#" style="color:#ffe08a;">link</a> · <a href="#" style="color:#ffe08a;">another</a></nav>
+  </section>
+  <section class="showcase" id="text-semantics">
+    <h2>Text-Level Semantics</h2>
+    <p><strong>strong</strong>, <em>emphasis</em>, <b>b</b>, <i>i</i>, <u>u</u>, <small>small</small>, <mark>mark highlight</mark>, <code>code</code>, <samp>samp</samp>, <var>x</var>, <kbd>Ctrl</kbd>, <abbr title="HyperText Markup Language">HTML</abbr>, <q cite="https://example.com">inline quotation</q>, <cite>cite source</cite>, <dfn>definition term</dfn>, <time datetime="2025-08-11">time</time>, <data value="42">data</data>, <span>span</span>, line<br>break and a w<wbr>br soft break hint.</p>
+    <p class="code-inline-set"><span>sub H<sub>2</sub>O</span> <span>sup E=mc<sup>2</sup></span> <span>bdi <bdi dir="rtl">abc عربى</bdi></span> <span>bdo <bdo dir="rtl">Reversed</bdo></span></p>
+  </section>
+  <section class="showcase" id="edits">
+    <h2>Edits & Quotations</h2>
+    <p>We can represent <ins>inserted text (ins)</ins> and <del>deleted text (del)</del> for change tracking.</p>
+    <blockquote cite="https://example.com/spec" style="margin:0 0 16px;">
+      <p>Blockquote with cite attribute referencing a source.</p>
+    </blockquote>
+    <address>address element<br>123 Example Ave<br>City, Region</address>
+  </section>
+  <section class="showcase" id="lists">
+    <h2>Lists</h2>
+    <div class="grid-3">
+      <div>
+        <h3>Ordered (ol)</h3>
+        <ol>
+          <li>Alpha</li>
+          <li>Beta</li>
+          <li>Gamma</li>
+        </ol>
+      </div>
+      <div>
+        <h3>Unordered (ul)</h3>
+        <ul>
+          <li>One</li>
+          <li>Two
+            <ul>
+              <li>Nested</li>
+            </ul>
+          </li>
+          <li>Three</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Menu / Nav</h3>
+        <ul style="list-style:none; padding:0; margin:0; display:flex; gap:12px;">
+          <li><a href="#" style="color:#ffe08a;">Home</a></li>
+          <li><a href="#" style="color:#ffe08a;">Docs</a></li>
+          <li><a href="#" style="color:#ffe08a;">Blog</a></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+  <section class="showcase" id="definition">
+    <h2>Definitions</h2>
+    <dl>
+      <dt>HTML</dt><dd>Markup language for documents.</dd>
+      <dt>CSS</dt><dd>Style sheet language for describing presentation.</dd>
+      <dt>DOM</dt><dd>Object model interface for structured documents.</dd>
+    </dl>
+  </section>
+  <section class="showcase" id="tables">
+    <h2>Tabular Data</h2>
+    <table class="demo">
+      <caption>Sample Table (table, thead, tbody, tfoot, tr, th, td, colgroup, col)</caption>
+      <colgroup>
+        <col style="background:rgba(255,255,255,.04)">
+        <col style="background:rgba(255,255,255,.02)">
+        <col style="background:rgba(255,255,255,.04)">
+      </colgroup>
+      <thead>
+        <tr><th>Framework</th><th>Lang</th><th>Stars</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Blitz</td><td>Rust</td><td>★</td></tr>
+        <tr><td>Example</td><td>JS</td><td>★★</td></tr>
+      </tbody>
+      <tfoot>
+        <tr><td colspan="3">tfoot summary</td></tr>
+      </tfoot>
+    </table>
+  </section>
+  <section class="showcase" id="media">
+    <h2>Media & Figures</h2>
+    <div class="grid-3">
+      <figure>
+        <picture>
+          <source media="(min-width:600px)" srcset="https://via.placeholder.com/400x200.png?text=Wide" />
+          <img src="https://via.placeholder.com/200x120.png?text=Img" alt="Placeholder" loading="lazy" />
+        </picture>
+        <figcaption>figure + picture + img + source</figcaption>
+      </figure>
+      <figure>
+        <audio controls preload="none" style="width:100%;">
+          <source src="" type="audio/mpeg">Your browser does not support audio.
+        </audio>
+        <figcaption>audio + source</figcaption>
+      </figure>
+      <figure>
+        <video controls muted loop preload="none" style="width:100%; border-radius:12px; background:#222;">
+          <source src="" type="video/mp4">Video not available.
+          <track kind="captions" src="" srclang="en" label="English" />
+        </video>
+        <figcaption>video + source + track</figcaption>
+      </figure>
+    </div>
+    <figure style="margin-top:24px;">
+      <img usemap="#samplemap" src="https://via.placeholder.com/320x120.png?text=Map" alt="Image map" />
+      <map name="samplemap">
+        <area shape="rect" coords="0,0,80,120" href="#" alt="Left" />
+        <area shape="rect" coords="240,0,320,120" href="#" alt="Right" />
+      </map>
+      <figcaption>map + area</figcaption>
+    </figure>
+  </section>
+  <section class="showcase" id="embedded">
+    <h2>Embedded & Scripting</h2>
+    <div class="grid-2">
+      <div>
+        <iframe title="Inline Frame" srcdoc="<p style='font-family:Segoe UI; color:#222;'>iframe srcdoc content</p>" style="width:100%; height:140px; border:0; border-radius:12px; overflow:hidden; background:#fff;"></iframe>
+        <p style="font-size:12px; opacity:.75;">iframe (with srcdoc)</p>
+        <canvas id="demoCanvas"></canvas>
+        <p style="font-size:12px; opacity:.75;">canvas element (static placeholder)</p>
+      </div>
+      <div>
+        <template id="tpl"><p>Template hidden content</p></template>
+        <p><code>&lt;template&gt;</code> element present (not rendered) and <code>&lt;noscript&gt;</code> fallback:</p>
+        <noscript><strong>JavaScript disabled</strong></noscript>
+        <script type="application/json" id="config-script">{"demo":true}</script>
+        <p style="font-size:12px; opacity:.75;">script (data), noscript</p>
+      </div>
+    </div>
+  </section>
+  <section class="showcase" id="forms">
+    <h2>Forms</h2>
+    <form onsubmit="return false;" style="margin-bottom:24px;">
+      <div class="form-grid">
+        <div>
+          <label for="text1">Text Input</label>
+          <input id="text1" name="text1" type="text" placeholder="Type..." value="Sample" />
+        </div>
+        <div>
+          <label for="email">Email</label>
+          <input id="email" type="email" placeholder="name@example.com" />
+        </div>
+        <div>
+          <label for="pwd">Password</label>
+          <input id="pwd" type="password" value="secret" />
+        </div>
+        <div>
+          <label for="num">Number</label>
+          <input id="num" type="number" min="0" max="10" value="5" />
+        </div>
+        <div>
+          <label for="rng">Range</label>
+          <input id="rng" type="range" min="0" max="100" value="40" />
+        </div>
+        <div>
+          <label for="clr">Color</label>
+          <input id="clr" type="color" value="#ff5f6d" />
+        </div>
+        <div>
+          <label for="dt">Date</label>
+          <input id="dt" type="date" />
+        </div>
+        <div>
+          <label for="tm">Time</label>
+          <input id="tm" type="time" />
+        </div>
+        <div>
+          <label for="file">File</label>
+          <input id="file" type="file" />
+        </div>
+        <div>
+          <label for="url">URL</label>
+          <input id="url" type="url" placeholder="https://" />
+        </div>
+        <div>
+          <label for="tel">Tel</label>
+          <input id="tel" type="tel" placeholder="555-1234" />
+        </div>
+        <div>
+          <label for="search">Search</label>
+          <input id="search" type="search" placeholder="Search..." />
+        </div>
+      </div>
+      <fieldset style="margin-top:28px;">
+        <legend>Choices</legend>
+        <label><input type="checkbox" name="opt" value="a" checked style="width:auto; display:inline-block;"> Checkbox A</label>
+        <label><input type="checkbox" name="opt" value="b" style="width:auto; display:inline-block;"> Checkbox B</label>
+        <label><input type="radio" name="rgrp" value="1" checked style="width:auto; display:inline-block;"> Radio 1</label>
+        <label><input type="radio" name="rgrp" value="2" style="width:auto; display:inline-block;"> Radio 2</label>
+        <label for="sel">Select</label>
+        <select id="sel"><optgroup label="Group 1"><option>One</option><option>Two</option></optgroup><optgroup label="Group 2"><option>Three</option></optgroup></select>
+        <label for="datalist">Datalist</label>
+        <input list="dlst" id="datalist" placeholder="Pick..." />
+        <datalist id="dlst"><option value="Alpha"><option value="Beta"><option value="Gamma"></datalist>
+        <label for="txta">Textarea</label>
+        <textarea id="txta" rows="3">Sample text</textarea>
+        <label for="prog">Progress</label>
+        <progress id="prog" value="64" max="100"></progress>
+        <label for="met">Meter</label>
+        <meter id="met" value="0.6" min="0" max="1" low="0.3" high="0.8" optimum="0.9">60%</meter>
+        <output name="result">(output)</output>
+        <button type="submit">Submit</button>
+        <button type="reset" style="background:#222; color:#fff; border:1px solid rgba(255,255,255,.35);">Reset</button>
+      </fieldset>
+    </form>
+  </section>
+  <section class="showcase" id="interactive">
+    <h2>Interactive Elements</h2>
+    <details open>
+      <summary>details + summary (open)</summary>
+      <p style="margin:8px 0 0; font-size:13px;">Expandable content block.</p>
+    </details>
+    <details>
+      <summary>Another collapsible region</summary>
+      <p style="margin:8px 0 0; font-size:13px;">Closed by default.</p>
+    </details>
+    <dialog open>
+      <h3 style="margin-top:0;">dialog (open)</h3>
+      <p style="font-size:13px;">Static open dialog example.</p>
+      <form method="dialog"><button style="width:auto;">Close</button></form>
+    </dialog>
+  </section>
+  <section class="showcase ruby-sample" id="ruby">
+    <h2>Ruby Annotation</h2>
+    <p><ruby>漢<rt>han</rt>字<rt>zi</rt></ruby> <ruby>明日<rt>Ashita</rt></ruby> <ruby>水<rp>(</rp><rt>mizu</rt><rp>)</rp></ruby></p>
+  </section>
+  <section class="showcase" id="misc">
+    <h2>Miscellaneous & Accessibility Helpers</h2>
+    <p><span class="visually-hidden">Visually hidden text (screen reader only).</span> <span aria-hidden="true">ARIA hidden decorative span.</span></p>
+    <p>Character entities: &amp;copy; &amp;mdash; &amp;hellip; &amp;#9731;</p>
+    <p>Directional isolation with bdi: <bdi>مرحبا</bdi></p>
   </section>
   <footer>Modify Assets/demo.html and save to hot-reload via app restart.</footer>
 </body>
