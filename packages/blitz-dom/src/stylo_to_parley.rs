@@ -1,7 +1,7 @@
 //! Conversion functions from Stylo types to Parley types
 use std::borrow::Cow;
 
-use style::values::computed::{Length, TextDecorationLine};
+use style::values::computed::{Length, TextDecorationLine, CSSPixelLength};
 
 use crate::node::TextBrush;
 use crate::util::ToColorColor;
@@ -205,18 +205,34 @@ pub(crate) fn style(
                 parley::GenericFamily::Emoji => "emoji".into(),
                 parley::GenericFamily::Math => "Cambria Math".into(),
                 parley::GenericFamily::FangSong => "FangSong".into(),
-                _ => "sans-serif".into(),
             },
         })
         .unwrap_or_else(|| "".into());
     // Extract background color for inline elements (resolve GenericColor -> AbsoluteColor -> SRGB)
     let current_color = style.clone_color();
-    let bg_color = style
-        .get_background()
-        .background_color
-        .resolve_to_absolute(&current_color)
-        .as_color_color();
+    let bg_color = 
+        style.get_background().background_color.resolve_to_absolute(&current_color).as_color_color();
     let bg_brush = (bg_color.components[3] > 0.0).then(|| peniko::Brush::Solid(bg_color));
+
+    // Inline background padding & radius: We don't yet have per-span CSS box model in parley.
+    // As an interim step, derive padding from background presence and some element heuristics.
+    // TODO: Once inline box metrics are exposed, map real CSS padding/border-radius here.
+    let mut inline_padding = [0.0f32;4];
+    let mut inline_radius = 0.0f32;
+    if bg_brush.is_some() {
+        // Small default vertical/horizontal padding similar to UA styles for <code>/<kbd>/<mark>
+        inline_padding = [2.0,4.0,2.0,4.0];
+        // Attempt a best-effort border-radius extraction using the top-left corner.
+        // We don't have inline box dimensions yet; use font_size as a proxy for both axes so
+        // pure lengths resolve correctly and percentages behave reasonably (percentage of ~em).
+        let borders = style.get_border();
+        let tl = &borders.border_top_left_radius; // type BorderCornerRadius
+        // Each corner radius holds a pair (width,height) of LengthPercentage. Resolve both then take min.
+        let resolve_em = CSSPixelLength::new(font_size as f32);
+        let rx = tl.0.width.0.resolve(resolve_em).px() as f32;
+        let ry = tl.0.height.0.resolve(resolve_em).px() as f32;
+        inline_radius = rx.min(ry).clamp(0.0, font_size * 2.0);
+    }
     parley::TextStyle {
         font_stack: parley::FontStack::List(Cow::Owned(families)),
         font_size,
@@ -226,7 +242,10 @@ pub(crate) fn style(
         font_variations: parley::FontSettings::List(Cow::Owned(font_variations)),
         font_features: parley::FontSettings::List(Cow::Borrowed(&[])),
         locale: Default::default(),
-        brush: TextBrush::from_id_color_weight_family(span_id, color, css_weight as u16, primary_family).with_background(bg_brush),
+        brush: TextBrush::from_id_color_weight_family(span_id, color, css_weight as u16, primary_family)
+            .with_background(bg_brush)
+            .with_padding(inline_padding)
+            .with_border_radius(inline_radius),
         has_underline: text_decoration_line.contains(TextDecorationLine::UNDERLINE),
         underline_offset: Default::default(),
         underline_size: Default::default(),

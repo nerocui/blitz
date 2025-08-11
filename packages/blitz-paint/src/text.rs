@@ -1,6 +1,6 @@
 use anyrender::PaintScene;
 use blitz_dom::node::TextBrush;
-use kurbo::{Affine, Point, Stroke};
+use kurbo::{Affine, Point, Stroke, RoundedRect};
 use parley::{Line, PositionedLayoutItem};
 use peniko::Fill;
 
@@ -31,20 +31,27 @@ pub(crate) fn stroke_text<'a>(
                 let weight: u16 = if style.brush.weight == 0 { 400 } else { style.brush.weight };
                 // Draw background rect for inline background if present
                 if let Some(bg_brush) = &style.brush.background {
-                    // Only handle solid color backgrounds for now
                     if let peniko::Brush::Solid(color) = bg_brush {
                         if color.components[3] > 0.0 {
-                            let rect = kurbo::Rect::from_origin_size(
-                                (glyph_run.offset() as f64, (glyph_run.baseline() - metrics.ascent) as f64),
-                                (glyph_run.advance() as f64, metrics.ascent as f64 + metrics.descent as f64)
-                            );
-                            scene.fill(
-                                Fill::NonZero,
-                                transform,
-                                *color,
-                                None,
-                                &rect,
-                            );
+                            // Base glyph run box
+                            let mut x0 = glyph_run.offset() as f64;
+                            let mut y0 = (glyph_run.baseline() - metrics.ascent) as f64;
+                            let mut w = glyph_run.advance() as f64;
+                            // Use ascent+descent as the base height (line gap unavailable in metrics)
+                            let mut h = metrics.ascent as f64 + metrics.descent as f64;
+                            // Apply logical padding (top,right,bottom,left)
+                            let pad = &style.brush.padding;
+                            x0 -= pad[3] as f64; // left
+                            y0 -= pad[0] as f64; // top
+                            w += (pad[1] + pad[3]) as f64; // right + left
+                            h += (pad[0] + pad[2]) as f64; // top + bottom
+                            let rect = kurbo::Rect::from_origin_size((x0, y0), (w.max(0.0), h.max(0.0)));
+                            if style.brush.border_radius > 0.5 {
+                                let rr = RoundedRect::from_rect(rect, style.brush.border_radius as f64);
+                                scene.fill(Fill::NonZero, transform, *color, None, &rr);
+                            } else {
+                                scene.fill(Fill::NonZero, transform, *color, None, &rect);
+                            }
                         }
                     }
                 }

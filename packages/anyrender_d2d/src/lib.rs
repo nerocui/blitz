@@ -293,7 +293,7 @@ impl D2DWindowRenderer {
     pub fn set_swapchain(&mut self, sc: IDXGISwapChain1, width: u32, height: u32) {
         self.width = width.max(1);
         self.height = height.max(1);
-        self.swapchain = Some(sc.clone());
+        self.swapchain = Some(sc);
     if self.d3d_device.is_none() { self.init_devices_from_swapchain(); }
         self.active = true;
     }
@@ -571,21 +571,19 @@ impl D2DWindowRenderer {
         unsafe {
             let path_geom1 = factory.CreatePathGeometry().ok()?;
             let path_geom: ID2D1PathGeometry = path_geom1.cast().ok()?;
-            let sink: ID2D1GeometrySink = path_geom.Open().ok()?; // full geometry sink
-            // Cast to simplified geometry sink interface expected by DirectWrite
-            if let Ok(simple) = sink.cast::<ID2D1SimplifiedGeometrySink>() {
-                let hr = face.GetGlyphRunOutline(
-                    em_size,
-                    glyph_indices.as_ptr(),
-                    Some(advances.as_ptr()),              // advances pointer
-                    None,                // no glyph offsets
-                    glyph_indices.len() as u32,
-                    false,                           // isSideways
-                    false,                           // isRightToLeft
-                    &simple,                         // geometry sink
-                );
-                if hr.is_ok() { let _ = sink.Close(); return Some(path_geom); }
-            }
+            let sink: ID2D1GeometrySink = path_geom.Open().ok()?; // implements simplified
+            let simple: ID2D1SimplifiedGeometrySink = sink.cast().ok()?;
+            let hr = face.GetGlyphRunOutline(
+                em_size,
+                glyph_indices.as_ptr(),
+                Some(advances.as_ptr()),
+                None,
+                glyph_indices.len() as u32,
+                false,
+                false,
+                &simple,
+            );
+            if hr.is_ok() { let _ = sink.Close(); return Some(path_geom); }
         }
         None
     }

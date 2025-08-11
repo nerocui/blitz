@@ -534,6 +534,10 @@ pub struct TextBrush {
     pub brush: peniko::Brush,
     /// Optional background color for the inline span
     pub background: Option<peniko::Brush>,
+    /// Logical padding (px) applied around the glyph run background box (before border radius)
+    pub padding: [f32;4], // top,right,bottom,left
+    /// Uniform border radius in px for inline background (currently a single value applied to all corners)
+    pub border_radius: f32,
     /// CSS numeric font weight (100..900); 400 normal.
     pub weight: u16,
     /// Primary font family (first specified or generic keyword like "monospace")
@@ -546,6 +550,8 @@ impl Default for TextBrush {
             id: 0,
             brush: peniko::Brush::Solid(peniko::Color::BLACK),
             background: None,
+            padding: [0.0;4],
+            border_radius: 0.0,
             weight: 400,
             family: std::sync::Arc::from("")
         }
@@ -554,18 +560,20 @@ impl Default for TextBrush {
 
 impl TextBrush {
     pub(crate) fn from_peniko_brush(brush: peniko::Brush) -> Self {
-        Self { id: 0, brush, background: None, weight: 400, family: std::sync::Arc::from("") }
+        Self { id: 0, brush, background: None, padding:[0.0;4], border_radius:0.0, weight: 400, family: std::sync::Arc::from("") }
     }
     pub(crate) fn from_color(color: AlphaColor<Srgb>) -> Self {
         Self::from_peniko_brush(peniko::Brush::Solid(color))
     }
     pub(crate) fn from_id_color_weight_family(id: usize, color: AlphaColor<Srgb>, weight: u16, family: std::sync::Arc<str>) -> Self {
-        Self { id, brush: peniko::Brush::Solid(color), background: None, weight, family }
+        Self { id, brush: peniko::Brush::Solid(color), background: None, padding:[0.0;4], border_radius:0.0, weight, family }
     }
     pub(crate) fn with_background(mut self, background: Option<peniko::Brush>) -> Self {
         self.background = background;
         self
     }
+    pub(crate) fn with_padding(mut self, pad: [f32;4]) -> Self { self.padding = pad; self }
+    pub(crate) fn with_border_radius(mut self, r: f32) -> Self { self.border_radius = r; self }
 }
 
 #[derive(Clone)]
