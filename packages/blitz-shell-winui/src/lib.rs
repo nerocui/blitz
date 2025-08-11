@@ -191,6 +191,38 @@ impl IHost_Impl for HostRuntime_Impl {
         }
         Ok(false)
     }
+
+    fn WheelScroll(&self, dx: f64, dy: f64) -> windows_core::Result<()> {
+        let imp = self.get_impl();
+        if let Some(inner) = imp.inner.lock().unwrap().as_mut() {
+            inner.wheel_scroll(dx, dy);
+        }
+        Ok(())
+    }
+
+    fn PointerMove(&self, x: f32, y: f32, buttons: u32, modifiers: u32) -> windows_core::Result<()> {
+        let imp = self.get_impl();
+        if let Some(inner) = imp.inner.lock().unwrap().as_mut() {
+            inner.pointer_move(x, y, buttons, modifiers);
+        }
+        Ok(())
+    }
+
+    fn PointerDown(&self, x: f32, y: f32, button: u8, buttons: u32, modifiers: u32) -> windows_core::Result<()> {
+        let imp = self.get_impl();
+        if let Some(inner) = imp.inner.lock().unwrap().as_mut() {
+            inner.pointer_down(x, y, button, buttons, modifiers);
+        }
+        Ok(())
+    }
+
+    fn PointerUp(&self, x: f32, y: f32, button: u8, buttons: u32, modifiers: u32) -> windows_core::Result<()> {
+        let imp = self.get_impl();
+        if let Some(inner) = imp.inner.lock().unwrap().as_mut() {
+            inner.pointer_up(x, y, button, buttons, modifiers);
+        }
+        Ok(())
+    }
 }
 
 #[allow(non_snake_case)]

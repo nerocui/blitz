@@ -78,6 +78,78 @@ impl Host {
             .map(|| result__)
         }
     }
+    pub fn WheelScroll(&self, dx: f64, dy: f64) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).WheelScroll)(
+                windows_core::Interface::as_raw(this),
+                dx,
+                dy,
+            )
+            .ok()
+        }
+    }
+    pub fn PointerMove(
+        &self,
+        x: f32,
+        y: f32,
+        buttons: u32,
+        modifiers: u32,
+    ) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).PointerMove)(
+                windows_core::Interface::as_raw(this),
+                x,
+                y,
+                buttons,
+                modifiers,
+            )
+            .ok()
+        }
+    }
+    pub fn PointerDown(
+        &self,
+        x: f32,
+        y: f32,
+        button: u8,
+        buttons: u32,
+        modifiers: u32,
+    ) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).PointerDown)(
+                windows_core::Interface::as_raw(this),
+                x,
+                y,
+                button,
+                buttons,
+                modifiers,
+            )
+            .ok()
+        }
+    }
+    pub fn PointerUp(
+        &self,
+        x: f32,
+        y: f32,
+        button: u8,
+        buttons: u32,
+        modifiers: u32,
+    ) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).PointerUp)(
+                windows_core::Interface::as_raw(this),
+                x,
+                y,
+                button,
+                buttons,
+                modifiers,
+            )
+            .ok()
+        }
+    }
     pub fn CreateInstance<P0>(
         attacher: P0,
         width: u32,
@@ -121,7 +193,7 @@ impl windows_core::RuntimeName for Host {
 }
 unsafe impl Send for Host {}
 unsafe impl Sync for Host {}
-windows_core::imp::define_interface!(IHost, IHost_Vtbl, 0xe152c88b_c991_5a71_8c7f_11d89dd8512a);
+windows_core::imp::define_interface!(IHost, IHost_Vtbl, 0xcb1f829a_00bb_555e_b485_dfa5a4685027);
 impl windows_core::RuntimeType for IHost {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -139,6 +211,25 @@ pub trait IHost_Impl: windows_core::IUnknownImpl {
     fn LoadHtml(&self, html: &windows_core::HSTRING) -> windows_core::Result<()>;
     fn SetVerboseLogging(&self, enabled: bool) -> windows_core::Result<()>;
     fn TestAttacherConnection(&self) -> windows_core::Result<bool>;
+    fn WheelScroll(&self, dx: f64, dy: f64) -> windows_core::Result<()>;
+    fn PointerMove(&self, x: f32, y: f32, buttons: u32, modifiers: u32)
+        -> windows_core::Result<()>;
+    fn PointerDown(
+        &self,
+        x: f32,
+        y: f32,
+        button: u8,
+        buttons: u32,
+        modifiers: u32,
+    ) -> windows_core::Result<()>;
+    fn PointerUp(
+        &self,
+        x: f32,
+        y: f32,
+        button: u8,
+        buttons: u32,
+        modifiers: u32,
+    ) -> windows_core::Result<()>;
 }
 impl IHost_Vtbl {
     pub const fn new<Identity: IHost_Impl, const OFFSET: isize>() -> Self {
@@ -212,6 +303,58 @@ impl IHost_Vtbl {
                 }
             }
         }
+        unsafe extern "system" fn WheelScroll<Identity: IHost_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            dx: f64,
+            dy: f64,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                IHost_Impl::WheelScroll(this, dx, dy).into()
+            }
+        }
+        unsafe extern "system" fn PointerMove<Identity: IHost_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            x: f32,
+            y: f32,
+            buttons: u32,
+            modifiers: u32,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                IHost_Impl::PointerMove(this, x, y, buttons, modifiers).into()
+            }
+        }
+        unsafe extern "system" fn PointerDown<Identity: IHost_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            x: f32,
+            y: f32,
+            button: u8,
+            buttons: u32,
+            modifiers: u32,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                IHost_Impl::PointerDown(this, x, y, button, buttons, modifiers).into()
+            }
+        }
+        unsafe extern "system" fn PointerUp<Identity: IHost_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            x: f32,
+            y: f32,
+            button: u8,
+            buttons: u32,
+            modifiers: u32,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                IHost_Impl::PointerUp(this, x, y, button, buttons, modifiers).into()
+            }
+        }
         Self {
             base__: windows_core::IInspectable_Vtbl::new::<Identity, IHost, OFFSET>(),
             SetPanel: SetPanel::<Identity, OFFSET>,
@@ -220,6 +363,10 @@ impl IHost_Vtbl {
             LoadHtml: LoadHtml::<Identity, OFFSET>,
             SetVerboseLogging: SetVerboseLogging::<Identity, OFFSET>,
             TestAttacherConnection: TestAttacherConnection::<Identity, OFFSET>,
+            WheelScroll: WheelScroll::<Identity, OFFSET>,
+            PointerMove: PointerMove::<Identity, OFFSET>,
+            PointerDown: PointerDown::<Identity, OFFSET>,
+            PointerUp: PointerUp::<Identity, OFFSET>,
         }
     }
     pub fn matches(iid: &windows_core::GUID) -> bool {
@@ -245,6 +392,31 @@ pub struct IHost_Vtbl {
         unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     pub TestAttacherConnection:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub WheelScroll:
+        unsafe extern "system" fn(*mut core::ffi::c_void, f64, f64) -> windows_core::HRESULT,
+    pub PointerMove: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        f32,
+        f32,
+        u32,
+        u32,
+    ) -> windows_core::HRESULT,
+    pub PointerDown: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        f32,
+        f32,
+        u8,
+        u32,
+        u32,
+    ) -> windows_core::HRESULT,
+    pub PointerUp: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        f32,
+        f32,
+        u8,
+        u32,
+        u32,
+    ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IHostFactory,

@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
+// using Microsoft.UI.Input; // Not needed after simplifying modifier detection
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -42,6 +43,12 @@ namespace BlitzWinRTTestApp
             
             // Set up a logging textbox to see what's happening
             LogMessages("Application started");
+
+            // Hook pointer events early (panel may not be loaded yet; events added again after load if needed)
+            BlitzPanel.PointerMoved += BlitzPanel_PointerMoved;
+            BlitzPanel.PointerPressed += BlitzPanel_PointerPressed;
+            BlitzPanel.PointerReleased += BlitzPanel_PointerReleased;
+            BlitzPanel.PointerWheelChanged += BlitzPanel_PointerWheelChanged;
         }
 
         private void LogMessages(string message)
@@ -129,6 +136,12 @@ namespace BlitzWinRTTestApp
                 // Render on XAML composition ticks
                 CompositionTarget.Rendering += CompositionTarget_Rendering;
                 LogMessages("BlitzPanel_Loaded: Render timer started");
+
+                // Ensure event handlers attached (in case constructor ran before XAML name hookup)
+                BlitzPanel.PointerMoved -= BlitzPanel_PointerMoved; BlitzPanel.PointerMoved += BlitzPanel_PointerMoved;
+                BlitzPanel.PointerPressed -= BlitzPanel_PointerPressed; BlitzPanel.PointerPressed += BlitzPanel_PointerPressed;
+                BlitzPanel.PointerReleased -= BlitzPanel_PointerReleased; BlitzPanel.PointerReleased += BlitzPanel_PointerReleased;
+                BlitzPanel.PointerWheelChanged -= BlitzPanel_PointerWheelChanged; BlitzPanel.PointerWheelChanged += BlitzPanel_PointerWheelChanged;
             }
             catch (Exception ex)
             {
@@ -192,5 +205,67 @@ namespace BlitzWinRTTestApp
             LogTextBox.Text = string.Empty;
             LogMessages("Log cleared");
         }
+
+        // --- Pointer / Wheel forwarding ---
+        private void BlitzPanel_PointerMoved(object sender, PointerRoutedEventArgs e)
+        {
+            if (_host == null) return;
+            var pt = e.GetCurrentPoint(BlitzPanel);
+            uint modifiers = (uint)e.KeyModifiers; // Shift=1, Control=2, Alt=4, Windows=8 matches expected bit layout
+            // Buttons bitmask: align with rust side (MouseEventButtons bits). Use left=1, right=2, middle=4, X1=8, X2=16
+            uint buttons = 0;
+            if (pt.Properties.IsLeftButtonPressed) buttons |= 1;
+            if (pt.Properties.IsRightButtonPressed) buttons |= 2;
+            if (pt.Properties.IsMiddleButtonPressed) buttons |= 4;
+            if (pt.Properties.IsXButton1Pressed) buttons |= 8;
+            if (pt.Properties.IsXButton2Pressed) buttons |= 16;
+            _host.PointerMove((float)pt.Position.X, (float)pt.Position.Y, buttons, modifiers);
+        }
+
+        private void BlitzPanel_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (_host == null) return;
+            var pt = e.GetCurrentPoint(BlitzPanel);
+            byte button = 0; // map primary left=0, right=2, middle=1 maybe; keep 0 for left
+            if (pt.Properties.IsRightButtonPressed) button = 2;
+            else if (pt.Properties.IsMiddleButtonPressed) button = 1;
+            uint buttons = 0;
+            if (pt.Properties.IsLeftButtonPressed) buttons |= 1;
+            if (pt.Properties.IsRightButtonPressed) buttons |= 2;
+            if (pt.Properties.IsMiddleButtonPressed) buttons |= 4;
+            if (pt.Properties.IsXButton1Pressed) buttons |= 8;
+            if (pt.Properties.IsXButton2Pressed) buttons |= 16;
+            uint modifiers = (uint)e.KeyModifiers;
+            _host.PointerDown((float)pt.Position.X, (float)pt.Position.Y, button, buttons, modifiers);
+        }
+
+        private void BlitzPanel_PointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            if (_host == null) return;
+            var pt = e.GetCurrentPoint(BlitzPanel);
+            byte button = 0;
+            // Determine released button heuristic (prefer left/right/middle sequence)
+            if (!pt.Properties.IsLeftButtonPressed) button = 0;
+            uint modifiers = (uint)e.KeyModifiers;
+            _host.PointerUp((float)pt.Position.X, (float)pt.Position.Y, button, 0, modifiers);
+        }
+
+        private void BlitzPanel_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
+        {
+            if (_host == null) return;
+            var pt = e.GetCurrentPoint(BlitzPanel);
+            // MouseWheelDelta units: multiples of 120 (Win32). We'll map one notch (±120) to 48 CSS px vertical.
+            // Direction: In typical UX, positive delta means wheel up (scroll content up -> negative y offset). Adjust sign accordingly.
+            int raw = pt.Properties.MouseWheelDelta; // +120 (away from user / wheel up)
+            double linesPerNotch = 1.0; // could read system setting; keep simple
+            double pixelsPerLine = 48.0; // tune later
+            double dy = raw / 120.0 * linesPerNotch * pixelsPerLine; // Don't invert, both wheel and trackpad already behave correctly
+            double dx = 0.0;
+            bool shift = (e.KeyModifiers & Windows.System.VirtualKeyModifiers.Shift) != 0;
+            if (shift) { dx = dy; dy = 0; }
+            _host.WheelScroll(dx, dy);
+            e.Handled = true;
+        }
+        // Removed InputKeyboardSource-based modifier helpers (not needed; using e.KeyModifiers which is reliable in WinUI3 desktop)
     }
 }

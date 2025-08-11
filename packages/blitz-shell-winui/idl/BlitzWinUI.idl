@@ -21,5 +21,9 @@ namespace BlitzWinUI
         void LoadHtml(String html);
     void SetVerboseLogging(Boolean enabled);
         Boolean TestAttacherConnection(); // Add test method
+    void WheelScroll(Double dx, Double dy); // mouse wheel / trackpad scroll delta
+    void PointerMove(Single x, Single y, UInt32 buttons, UInt32 modifiers);
+    void PointerDown(Single x, Single y, UInt8 button, UInt32 buttons, UInt32 modifiers);
+    void PointerUp(Single x, Single y, UInt8 button, UInt32 buttons, UInt32 modifiers);
     }
 }
