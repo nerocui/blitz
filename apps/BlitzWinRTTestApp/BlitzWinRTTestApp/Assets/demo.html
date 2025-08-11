@@ -43,6 +43,18 @@
     .mono { font-family: Consolas, 'Courier New', monospace; }
     .serif { font-family: Georgia, 'Times New Roman', serif; }
     .emoji { font-family: 'Segoe UI Emoji', 'Segoe UI Symbol', emoji; }
+  /* Additional samples styling */
+  .text-samples { max-width: 900px; margin:48px 0; background:rgba(255,255,255,.08); padding:24px 28px 32px; border-radius:20px; backdrop-filter:blur(6px); }
+  .text-samples h2, .text-samples h3 { margin-top:0; }
+  .text-samples code { background:rgba(0,0,0,.35); padding:2px 6px; border-radius:4px; font-family: Consolas, 'Courier New', monospace; font-size:13px; }
+  pre { background:rgba(0,0,0,.35); padding:14px 16px; overflow:auto; border-radius:12px; font-size:13px; line-height:1.35; }
+  pre code { background:transparent; padding:0; }
+  blockquote { margin:16px 0 24px; padding:12px 18px; border-left:4px solid rgba(255,255,255,.6); background:rgba(255,255,255,.08); border-radius:0 12px 12px 0; }
+  kbd { background:#222; color:#fff; padding:3px 6px 5px; border-radius:6px; font-size:12px; box-shadow:0 2px 4px rgba(0,0,0,.4) inset, 0 1px 0 rgba(255,255,255,.15); }
+  mark { background:#ffeb3b; color:#222; padding:1px 4px; border-radius:4px; }
+  .text-samples ul, .text-samples ol { padding-left:26px; }
+  .text-samples ul ul { margin-top:6px; }
+  .uline { text-decoration: underline wavy #fff; }
   </style>
 </head>
 <body>
@@ -68,7 +80,35 @@
       <p class="emoji">Emoji: 😃🔥🚀✨📦🧪</p>
     </div>
   </div>
-  <div class="shadow-grid">
+  <section class="text-samples">
+    <h2>Text Decorations &amp; Semantics</h2>
+    <p><strong>Strong (bold)</strong>, <b>Bold (b)</b>, <em>Italic (em)</em>, <i>Italic (i)</i>, <u>Underline (u)</u>, <span class="uline">Custom wavy underline</span>, <del>Deleted (del)</del>, <s>Strikethrough (s)</s>, <mark>Highlighted (mark)</mark>, Formula: H<sub>2</sub>O &amp; E = mc<sup>2</sup>.</p>
+    <p>Inline <code>code()</code>, keyboard: <kbd>Ctrl</kbd>+<kbd>S</kbd>, and a <a href="#" style="color:#ffe08a; text-decoration:underline;">sample link</a>.</p>
+    <pre><code>fn main() {
+    println!("Hello blitz");
+    // Bold/italic/underline rendering showcase
+}</code></pre>
+    <blockquote>
+      <p>Blockquote: Typography and decoration rendering path; verify baseline alignment, decoration thickness, and font weight mixing.</p>
+    </blockquote>
+    <h3>Unordered List</h3>
+    <ul>
+      <li>First item</li>
+      <li>Second item
+        <ul>
+          <li>Nested A</li>
+          <li>Nested B</li>
+        </ul>
+      </li>
+      <li>Third item</li>
+    </ul>
+    <h3>Ordered List</h3>
+    <ol>
+      <li>Step one</li>
+      <li>Step two</li>
+      <li>Step three</li>
+    </ol>
+      <div class="shadow-grid">
     <div class="shadow s1"><strong>shadow 1</strong><span>0 2px 4px</span></div>
     <div class="shadow s2"><strong>shadow 2</strong><span>0 4px 12px</span></div>
     <div class="shadow s3"><strong>shadow 3</strong><span>0 8px 24px</span></div>
@@ -78,6 +118,7 @@
     <div class="shadow c1"><strong>warm</strong><span>colored glow</span></div>
     <div class="shadow c2"><strong>cool</strong><span>colored glow</span></div>
   </div>
+  </section>
   <footer>Modify Assets/demo.html and save to hot-reload via app restart.</footer>
 </body>
 </html>
