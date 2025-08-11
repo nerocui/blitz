@@ -9,6 +9,10 @@ WinUI / WinAppSDK host shell for Blitz consumable from C#. Renders into a `Micro
 - Use the `anyrender_d2d` backend to replay recorded Blitz scene commands (paths, gradients, images, text) straight into the swapchain.
 - Translate host pointer / keyboard events to Blitz DOM events.
 
+## Screenshots
+
+![Screenshot](./docs/screenshot.png)
+
 ## Implementation Status (Aug 2025)
 
 - WinRT IDL -> midlrt -> winmd -> Rust bindings pipeline (generated `bindings.rs`, never hand edit).
