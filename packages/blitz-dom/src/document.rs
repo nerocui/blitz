@@ -971,6 +971,7 @@ impl BaseDocument {
     /// TODO: update taffy to use an associated type instead of slab key
     /// TODO: update taffy to support traited styles so we don't even need to rely on taffy for storage
     pub fn resolve_layout(&mut self) {
+    let layout_guard = blitz_metrics::start_phase("layout");
         let size = self.stylist.device().au_viewport_size();
 
         let available_space = taffy::Size {
@@ -983,7 +984,8 @@ impl BaseDocument {
         // println!("\n\nRESOLVE LAYOUT\n===========\n");
 
         taffy::compute_root_layout(self, root_element_id, available_space);
-        taffy::round_layout(self, root_element_id);
+    taffy::round_layout(self, root_element_id);
+    layout_guard.end();
 
         // println!("\n\n");
         // taffy::print_tree(self, root_node_id)

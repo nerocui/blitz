@@ -9,6 +9,7 @@
 //! Status: initial scaffold. Surface creation and event wiring are stubs that need real handles.
 
 mod winrt_component;
+mod global_gfx;
 mod bindings;
 
 #[derive(Clone, Copy)]
@@ -123,7 +124,8 @@ use windows_core::IUnknownImpl;
 use crate::bindings::{IHost, IHostFactory, IHost_Impl, IHostFactory_Impl};
 // Note: We expose a custom factory (IHostFactory) via DllGetActivationFactory.
 
-#[implement(IHost, IHostFactory)]
+// HostRuntime implements only IHost; factory provided separately via HostActivationFactory
+#[implement(IHost)]
 pub struct HostRuntime {
     inner: std::sync::Mutex<Option<Box<winrt_component::BlitzHost>>>,
 }
@@ -223,47 +225,16 @@ impl IHost_Impl for HostRuntime_Impl {
         }
         Ok(())
     }
-}
 
-#[allow(non_snake_case)]
-impl IHostFactory_Impl for HostRuntime_Impl {
-    fn CreateInstance(
-        &self,
-        attacher: windows_core::Ref<'_, IInspectable>,
-        width: u32,
-        height: u32,
-        scale: f32,
-    ) -> windows_core::Result<bindings::Host> {
-        let runtime = HostRuntime::new();
-        
-        // Try to cast to ISwapChainAttacher
-        if let Some(insp) = attacher.as_ref() {
-            if let Ok(att) = insp.cast::<ISwapChainAttacher>() {
-                // Create host with attacher directly
-                if let Ok(shell) = winrt_component::BlitzHost::new_with_attacher(att, width, height, scale) {
-                    *runtime.inner.lock().unwrap() = Some(Box::new(shell));
-                    let insp: IInspectable = runtime.into();
-                    let host: bindings::Host = Interface::cast(&insp)?;
-                    return Ok(host);
-                }
-            }
+    fn ReportAttachSubPhase(&self, kind: u8, ms: f32) -> windows_core::Result<()> {
+        let imp = self.get_impl();
+        if let Some(inner) = imp.inner.lock().unwrap().as_mut() {
+            inner.report_attach_subphase(kind, ms);
         }
-        
-        // Fallback to old method if attacher casting failed
-        let shell = winrt_component::BlitzHost::new_for_swapchain(
-            SwapChainPanelHandle { swapchain: 0 },
-            width,
-            height,
-            scale,
-        )
-        .map_err(|_| windows_core::Error::new(windows_core::HRESULT(0x80004005u32 as i32), "Host creation failed"))?;
-        *runtime.inner.lock().unwrap() = Some(Box::new(shell));
-        let insp: IInspectable = runtime.into();
-        let host: bindings::Host = Interface::cast(&insp)?;
-        host.SetPanel(attacher.as_ref())?;
-        Ok(host)
+        Ok(())
     }
 }
+
 
 // --- WinRT Activation Factory ---
 // Provide a factory object that implements IHostFactory; the runtime will QI for this interface.
@@ -272,24 +243,26 @@ pub struct HostActivationFactory;
 
 #[allow(non_snake_case)]
 impl IHostFactory_Impl for HostActivationFactory_Impl {
+        
+        
+
     fn CreateInstance(
         &self,
         attacher: windows_core::Ref<'_, IInspectable>,
         width: u32,
         height: u32,
         scale: f32,
+        initial_html: &windows_core::HSTRING,
     ) -> windows_core::Result<bindings::Host> {
         let runtime = HostRuntime::new();
         crate::winrt_component::debug_log(&format!("HostActivationFactory::CreateInstance: entered ({}x{}, scale {})", width, height, scale));
-        
-        // Try to cast to ISwapChainAttacher
+        let html_str = initial_html.to_string();
         if let Some(insp) = attacher.as_ref() {
             crate::winrt_component::debug_log(&format!("HostActivationFactory::CreateInstance: inspecting attacher object {:?}", insp));
             if let Ok(att) = insp.cast::<ISwapChainAttacher>() {
-                // Create host with attacher directly
                 crate::winrt_component::debug_log("HostActivationFactory::CreateInstance: cast to ISwapChainAttacher succeeded");
-                if let Ok(shell) = winrt_component::BlitzHost::new_with_attacher(att, width, height, scale) {
-                    crate::winrt_component::debug_log("HostActivationFactory::CreateInstance: new_with_attacher succeeded");
+                if let Ok(mut shell) = winrt_component::BlitzHost::new_with_attacher(att, width, height, scale) {
+                    if !html_str.is_empty() { shell.load_html(&html_str); }
                     *runtime.inner.lock().unwrap() = Some(Box::new(shell));
                     let insp: IInspectable = runtime.into();
                     let host: bindings::Host = Interface::cast(&insp)?;
@@ -297,16 +270,14 @@ impl IHostFactory_Impl for HostActivationFactory_Impl {
                 }
             }
         }
-        
-        // Fallback to old method if attacher casting failed
         crate::winrt_component::debug_log("HostActivationFactory::CreateInstance: falling back to new_for_swapchain + SetPanel path");
-        let shell = winrt_component::BlitzHost::new_for_swapchain(
+        let mut shell = winrt_component::BlitzHost::new_for_swapchain(
             SwapChainPanelHandle { swapchain: 0 },
             width,
             height,
             scale,
-        )
-        .map_err(|_| windows_core::Error::new(windows_core::HRESULT(0x80004005u32 as i32), "Host creation failed"))?;
+        ).map_err(|_| windows_core::Error::new(windows_core::HRESULT(0x80004005u32 as i32), "Host creation failed"))?;
+        if !html_str.is_empty() { shell.load_html(&html_str); }
         *runtime.inner.lock().unwrap() = Some(Box::new(shell));
         let insp: IInspectable = runtime.into();
         let host: bindings::Host = Interface::cast(&insp)?;

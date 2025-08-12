@@ -21,6 +21,7 @@ anyrender = { workspace = true }
 anyrender_svg = { workspace = true, optional = true }
 blitz-traits = { workspace = true }
 blitz-dom = { workspace = true }
+blitz-metrics = { workspace = true }
 
 # Servo dependencies
 style = { workspace = true }

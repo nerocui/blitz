@@ -150,11 +150,23 @@ impl Host {
             .ok()
         }
     }
+    pub fn ReportAttachSubPhase(&self, kind: u8, ms: f32) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).ReportAttachSubPhase)(
+                windows_core::Interface::as_raw(this),
+                kind,
+                ms,
+            )
+            .ok()
+        }
+    }
     pub fn CreateInstance<P0>(
         attacher: P0,
         width: u32,
         height: u32,
         scale: f32,
+        initialhtml: &windows_core::HSTRING,
     ) -> windows_core::Result<Host>
     where
         P0: windows_core::Param<windows_core::IInspectable>,
@@ -167,6 +179,7 @@ impl Host {
                 width,
                 height,
                 scale,
+                core::mem::transmute_copy(initialhtml),
                 &mut result__,
             )
             .and_then(|| windows_core::Type::from_abi(result__))
@@ -193,7 +206,7 @@ impl windows_core::RuntimeName for Host {
 }
 unsafe impl Send for Host {}
 unsafe impl Sync for Host {}
-windows_core::imp::define_interface!(IHost, IHost_Vtbl, 0xcb1f829a_00bb_555e_b485_dfa5a4685027);
+windows_core::imp::define_interface!(IHost, IHost_Vtbl, 0x6a30485f_0706_5977_a21b_8a214c0dd551);
 impl windows_core::RuntimeType for IHost {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -230,6 +243,7 @@ pub trait IHost_Impl: windows_core::IUnknownImpl {
         buttons: u32,
         modifiers: u32,
     ) -> windows_core::Result<()>;
+    fn ReportAttachSubPhase(&self, kind: u8, ms: f32) -> windows_core::Result<()>;
 }
 impl IHost_Vtbl {
     pub const fn new<Identity: IHost_Impl, const OFFSET: isize>() -> Self {
@@ -355,6 +369,20 @@ impl IHost_Vtbl {
                 IHost_Impl::PointerUp(this, x, y, button, buttons, modifiers).into()
             }
         }
+        unsafe extern "system" fn ReportAttachSubPhase<
+            Identity: IHost_Impl,
+            const OFFSET: isize,
+        >(
+            this: *mut core::ffi::c_void,
+            kind: u8,
+            ms: f32,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                IHost_Impl::ReportAttachSubPhase(this, kind, ms).into()
+            }
+        }
         Self {
             base__: windows_core::IInspectable_Vtbl::new::<Identity, IHost, OFFSET>(),
             SetPanel: SetPanel::<Identity, OFFSET>,
@@ -367,6 +395,7 @@ impl IHost_Vtbl {
             PointerMove: PointerMove::<Identity, OFFSET>,
             PointerDown: PointerDown::<Identity, OFFSET>,
             PointerUp: PointerUp::<Identity, OFFSET>,
+            ReportAttachSubPhase: ReportAttachSubPhase::<Identity, OFFSET>,
         }
     }
     pub fn matches(iid: &windows_core::GUID) -> bool {
@@ -417,11 +446,13 @@ pub struct IHost_Vtbl {
         u32,
         u32,
     ) -> windows_core::HRESULT,
+    pub ReportAttachSubPhase:
+        unsafe extern "system" fn(*mut core::ffi::c_void, u8, f32) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IHostFactory,
     IHostFactory_Vtbl,
-    0x858fc9c7_4631_527b_bbee_315bebb62b45
+    0x4160f2b5_f08f_53d3_b492_72df4a617a69
 );
 impl windows_core::RuntimeType for IHostFactory {
     const SIGNATURE: windows_core::imp::ConstBuffer =
@@ -437,6 +468,7 @@ pub trait IHostFactory_Impl: windows_core::IUnknownImpl {
         width: u32,
         height: u32,
         scale: f32,
+        initialHtml: &windows_core::HSTRING,
     ) -> windows_core::Result<Host>;
 }
 impl IHostFactory_Vtbl {
@@ -450,6 +482,7 @@ impl IHostFactory_Vtbl {
             width: u32,
             height: u32,
             scale: f32,
+            initialhtml: *mut core::ffi::c_void,
             result__: *mut *mut core::ffi::c_void,
         ) -> windows_core::HRESULT {
             unsafe {
@@ -461,6 +494,7 @@ impl IHostFactory_Vtbl {
                     width,
                     height,
                     scale,
+                    core::mem::transmute(&initialhtml),
                 ) {
                     Ok(ok__) => {
                         result__.write(core::mem::transmute_copy(&ok__));
@@ -490,6 +524,7 @@ pub struct IHostFactory_Vtbl {
         u32,
         u32,
         f32,
+        *mut core::ffi::c_void,
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
 }

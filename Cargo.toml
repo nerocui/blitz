@@ -44,6 +44,7 @@ anyrender_vello_cpu = { version = "0.5.2", path = "./packages/anyrender_vello_cp
 anyrender_svg = { version = "0.5.0", path = "./packages/anyrender_svg" }
 anyrender_d2d = { version = "0.5.0", path = "./packages/anyrender_d2d" }
 debug_timer = { version = "0.1.0", path = "./packages/debug_timer" }
+blitz-metrics = { version = "0.1.0", path = "./packages/blitz-metrics" }
 
 # Blitz dependencies(in-repo)
 blitz = { version = "0.1.0-rc.3", path = "./packages/blitz" }

@@ -48,6 +48,7 @@ use style::values::computed::text::TextAlign as StyloTextAlign;
 
 impl crate::document::BaseDocument {
     pub fn resolve_stylist(&mut self) {
+    let style_guard = blitz_metrics::start_phase("style");
         style::thread_state::enter(ThreadState::LAYOUT);
 
         let guard = &self.guard;
@@ -83,11 +84,13 @@ impl crate::document::BaseDocument {
         // dbg!(root);
         let token = RecalcStyle::pre_traverse(root, &context);
 
-        if token.should_traverse() {
+    if token.should_traverse() {
             // Style the elements, resolving their data
             let traverser = RecalcStyle::new(context);
             style::driver::traverse_dom(&traverser, token, None);
         }
+    // Explicitly end style phase (initial only recorded by metrics layer)
+    style_guard.end();
 
         style::thread_state::exit(ThreadState::LAYOUT);
     }

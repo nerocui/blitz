@@ -8,11 +8,8 @@ use blitz_traits::shell::{ColorScheme, Viewport};
 use crate::bindings::ISwapChainAttacher;
 use windows::core::{IInspectable, Interface};
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
-    ID3D11Resource, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_DEBUG, D3D11_SDK_VERSION,
-};
-use windows::Win32::Graphics::Direct3D::{
-    D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1,
+    ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
+    ID3D11Resource,
 };
 use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory2, IDXGIFactory2, IDXGISwapChain1, DXGI_CREATE_FACTORY_FLAGS,
@@ -52,6 +49,14 @@ pub struct BlitzHost {
     content_loaded: bool,
     // simple frame invalidation flag (best-effort; we still allow forced render)
     needs_render: bool,
+    // If real content loaded before swapchain is ready, defer starting initial measurement until activation
+    pending_content_measurement: bool,
+    // Async panel attach workflow
+    host_init_start: Option<std::time::Instant>,
+    pending_swapchain: Option<IDXGISwapChain1>,
+    // Queued attach timing
+    attach_queue_start: Option<std::time::Instant>,
+    attach_pending: bool,
 }
 
 impl BlitzHost {
@@ -80,6 +85,11 @@ impl BlitzHost {
             attacher: None,
             content_loaded: false,
             needs_render: false,
+            pending_content_measurement: false,
+            host_init_start: None,
+            pending_swapchain: None,
+            attach_queue_start: None,
+            attach_pending: false,
         })
     }
     
@@ -95,6 +105,9 @@ impl BlitzHost {
     pub fn get_attacher(&self) -> Option<ISwapChainAttacher> {
         self.attacher.clone()
     }
+
+    // Temporary mutable access for instrumentation augmentation; keep internal
+    fn renderer_mut(&mut self) -> Option<&mut anyrender_d2d::D2DWindowRenderer> { Some(&mut self.renderer) }
 
     pub fn set_verbose_logging(&mut self, enabled: bool) {
         anyrender_d2d::set_verbose_logging(enabled);
@@ -123,7 +136,10 @@ impl BlitzHost {
     }
 
     fn create_and_attach_swapchain(&mut self) {
-    debug_log("create_and_attach_swapchain: entering");
+    debug_log("create_and_attach_swapchain: entering (async queued mode)");
+    let host_t0 = std::time::Instant::now();
+    self.host_init_start = Some(host_t0);
+    let mut t_phase = host_t0;
         // Need an attacher to complete the hookup
         let attacher = match &self.attacher { 
             Some(a) => {
@@ -150,70 +166,18 @@ impl BlitzHost {
         let height = height.max(1);
     debug_log(&format!("create_and_attach_swapchain: using size {}x{}", width, height));
         unsafe {
-            // Create D3D11 device/context
-            let feature_levels = [D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0];
-            let mut device: Option<ID3D11Device> = None;
-            let mut context: Option<ID3D11DeviceContext> = None;
-            let mut chosen: D3D_FEATURE_LEVEL = D3D_FEATURE_LEVEL_11_0;
-            debug_log(&format!(
-                "create_and_attach_swapchain: Calling D3D11CreateDevice feature_level_count={} (debug build: {})",
-                feature_levels.len(),
-                cfg!(debug_assertions)
-            ));
-            // Try with debug layer in debug builds; fallback without if it fails (e.g. Graphics Tools not installed).
-            let mut flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
-            #[cfg(debug_assertions)]
-            { flags |= D3D11_CREATE_DEVICE_DEBUG; }
-
-            let mut try_create = |flags| {
-                // windows-rs 0.58 signature:
-                // D3D11CreateDevice(padapter, drivertype, software, flags,
-                //   pfeaturelevels: Option<&[D3D_FEATURE_LEVEL]>, sdkversion: u32,
-                //   ppdevice: Option<*mut Option<ID3D11Device>>,
-                //   pfeaturelevel: Option<*mut D3D_FEATURE_LEVEL>,   <== NOTE: windows 0.58 expects Option here
-                //   ppimmediatecontext: Option<*mut Option<ID3D11DeviceContext>>)
-                // Differences vs native: slice + implicit count; Option wrappers for ALL out params including feature level.
-                // IMPORTANT: Do NOT remove the Some(...) wrappers around device, chosen feature level, or context.
-                // Previous mistakes removed Some(&mut chosen) causing E0308 (expected Option<*mut D3D_FEATURE_LEVEL>).
-                // NOTE: No nested `unsafe {}` here; we are already inside an outer unsafe block.
-                // Adding another unsafe block would trigger `unused_unsafe` warning.
-                D3D11CreateDevice(
-                    None,                              // adapter
-                    D3D_DRIVER_TYPE_HARDWARE,          // driver type
-                    None,                              // software module
-                    flags,                             // flags
-                    Some(&feature_levels),             // feature level candidates
-                    D3D11_SDK_VERSION,                 // sdk version constant
-                    Some(&mut device),                 // out: device (Option wrapper required)
-                    Some(&mut chosen),                 // out: chosen feature level (MUST stay wrapped in Some)
-                    Some(&mut context),                // out: immediate context (Option wrapper required)
-                )
-            };
-
-            let hr = try_create(flags);
-            if hr.is_err() {
-                debug_log(&format!("create_and_attach_swapchain: D3D11CreateDevice initial attempt failed (flags={:?}) hr={:?}", flags, hr));
-                #[cfg(debug_assertions)]
-                {
-                    if (flags & D3D11_CREATE_DEVICE_DEBUG) == D3D11_CREATE_DEVICE_DEBUG {
-                        let fallback_flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT; // drop debug
-                        debug_log("create_and_attach_swapchain: retrying D3D11CreateDevice without DEBUG layer");
-                        let hr2 = try_create(fallback_flags);
-                        if hr2.is_err() {
-                            debug_log(&format!("create_and_attach_swapchain: D3D11CreateDevice fallback failed hr={:?}", hr2));
-                            return;
-                        }
-                    } else {
-                        return;
-                    }
-                }
-                #[cfg(not(debug_assertions))]
-                { return; }
+            let acquire = crate::global_gfx::get_or_create_d3d_device();
+            if acquire.is_none() { debug_log("create_and_attach_swapchain: failed to acquire global device"); return; }
+            let acquire = acquire.unwrap();
+            let device = acquire.device.clone();
+            let context = acquire.context.clone();
+            if acquire.created {
+                let d3d_elapsed = t_phase.elapsed().as_secs_f32()*1000.0; t_phase = std::time::Instant::now();
+                if let Some(r) = self.renderer_mut() { r.add_host_dxgi_d3d_ms(d3d_elapsed); }
+                debug_log(&format!("create_and_attach_swapchain: created shared D3D device (feature {:?}) d3d_ms={:.2}", acquire.feature_level, d3d_elapsed));
+            } else {
+                debug_log(&format!("create_and_attach_swapchain: reused shared D3D device (feature {:?})", acquire.feature_level));
             }
-            let device = device.unwrap();
-            let context = context.unwrap();
-            debug_log(&format!("create_and_attach_swapchain: D3D11 device created (feature level {:?})", chosen));
-            debug_log("create_and_attach_swapchain: D3D11 device created successfully");
 
             // Create swapchain for composition
             let factory: IDXGIFactory2 = match CreateDXGIFactory2::<IDXGIFactory2>(DXGI_CREATE_FACTORY_FLAGS(0)) {
@@ -292,6 +256,9 @@ impl BlitzHost {
                     return;
                 }
             };
+            let sc_elapsed = t_phase.elapsed().as_secs_f32()*1000.0; t_phase = std::time::Instant::now();
+            if let Some(r) = self.renderer_mut() { r.add_host_swapchain_ms(sc_elapsed); }
+            debug_log(&format!("create_and_attach_swapchain: swapchain_ms={:.2}", sc_elapsed));
 
             // This is the critical part - getting the raw pointer correctly
             // 1. First clone to ensure we have a separate COM reference
@@ -305,31 +272,56 @@ impl BlitzHost {
             let ptr_u64 = raw_ptr as usize as u64;
             debug_log(&format!("create_and_attach_swapchain: Converted to u64: 0x{:X}", ptr_u64));
             
-            // 4. Call the attacher with the real pointer
-            debug_log("create_and_attach_swapchain: Calling AttachSwapChain with real pointer...");
-            let result = attacher.AttachSwapChain(ptr_u64);
-            
-            // 5. Check result
-            match result {
-                Ok(_) => debug_log("create_and_attach_swapchain: AttachSwapChain call succeeded"),
-                Err(e) => debug_log(&format!("create_and_attach_swapchain: AttachSwapChain call failed: {:?}", e)),
-            }
-
-            // Store for rendering
+            // Store device + context now (these are immediately usable for layout text metrics etc.)
             self.d3d_device = Some(device);
             self.d3d_context = Some(context);
-            self.swapchain = Some(sc);
-            debug_log("create_and_attach_swapchain: Successfully stored device, context, and swapchain");
-            if let Some(sc_ref) = &self.swapchain { self.renderer.set_swapchain(sc_ref.clone(), width, height); }
-            
-            // Ensure our renderer matches the current size
+            self.pending_swapchain = Some(sc);
             self.renderer.set_size(width, height);
-            // Schedule an initial placeholder render so panel is not visually blank while waiting for real content
-            self.needs_render = true;
-            debug_log("create_and_attach_swapchain: swapchain ready (scheduling placeholder render)");
-            // Perform a placeholder render immediately (will draw debug background even without content)
-            self.render_once();
+            // Mark attach as pending; actual AttachSwapChain will execute later (e.g. at next render/poll)
+            self.attach_queue_start = Some(std::time::Instant::now());
+            self.attach_pending = true;
+            debug_log("create_and_attach_swapchain: queued panel AttachSwapChain (executing immediately to minimize wait)");
+            // Execute immediately to keep queue_ms near-zero for better overlap accounting
+            self.maybe_execute_queued_attach();
         }
+    }
+
+    // Execute pending panel attach when appropriate (first poll after queue) measuring queue vs exec time.
+    fn maybe_execute_queued_attach(&mut self) {
+        if !self.attach_pending { return; }
+        if self.swapchain.is_some() { self.attach_pending = false; return; }
+        // Safe to proceed now; measure queue_ms
+        let queue_ms = self.attach_queue_start.map(|t| t.elapsed().as_secs_f32()*1000.0).unwrap_or(0.0);
+        // Perform the real attach now
+        let Some(attacher) = self.attacher.clone() else { debug_log("maybe_execute_queued_attach: no attacher (aborting)" ); self.attach_pending = false; return; };
+        let Some(sc) = self.pending_swapchain.take() else { debug_log("maybe_execute_queued_attach: no pending swapchain" ); self.attach_pending = false; return; };
+        // Recreate raw pointer for swapchain (COM pointer still valid)
+        let raw_ptr = windows::core::Interface::as_raw(&sc) as usize as u64;
+        let exec_start = std::time::Instant::now();
+        let result = attacher.AttachSwapChain(raw_ptr);
+        let exec_ms = exec_start.elapsed().as_secs_f32()*1000.0;
+        if let Some(r) = self.renderer_mut() { r.add_host_panel_attach_queue_ms(queue_ms); r.add_host_panel_attach_exec_ms(exec_ms); }
+        match result {
+            Ok(_) => debug_log(&format!("maybe_execute_queued_attach: AttachSwapChain succeeded queue_ms={:.2} exec_ms={:.2}", queue_ms, exec_ms)),
+            Err(e) => { debug_log(&format!("maybe_execute_queued_attach: AttachSwapChain failed queue_ms={:.2} exec_ms={:.2} err={:?}", queue_ms, exec_ms, e)); }
+        }
+        // Finalize swapchain into renderer
+        let (w,h) = self.doc.viewport().window_size;
+        self.renderer.set_swapchain(sc.clone(), w.max(1), h.max(1));
+        self.swapchain = Some(sc);
+        // Accumulate host init total after full attach completes, excluding queue wait (we only want non-overlapped exec + prior setup)
+        if let Some(start) = self.host_init_start.take() {
+            let total_elapsed = start.elapsed().as_secs_f32()*1000.0;
+            let effective = (total_elapsed - queue_ms).max(0.0);
+            if self.content_loaded && self.pending_content_measurement { 
+                self.renderer.restart_initial_measurement();
+                self.pending_content_measurement = false;
+            }
+            self.renderer.accumulate_host_init_ms(effective);
+        }
+        // If content already available, render immediately (first real frame). Otherwise mark dirty for later.
+        if self.content_loaded { self.needs_render = true; }
+        self.attach_pending = false;
     }
 
     // TODO: Enable when implementing CPU-GPU texture bridge
@@ -385,6 +377,8 @@ impl BlitzHost {
     }
 
     pub fn render_once(&mut self) {
+    // First check if async panel attach completed
+    self.maybe_execute_queued_attach();
     // Always allow a first placeholder render even before content loads so we can show debug background
     if !self.content_loaded && !self.needs_render {
         // Nothing requested; no placeholder invalidation
@@ -482,18 +476,27 @@ impl BlitzHost {
     }
 
     pub fn load_html(&mut self, html: &str) {
-        let cfg = DocumentConfig::default();
-        let new_doc = HtmlDocument::from_html(html, cfg);
+    // If swapchain active, restart initial metrics now so timings reflect real document; else defer until swapchain creation
+    let swapchain_ready = self.swapchain.is_some();
+    if swapchain_ready { self.renderer.restart_initial_measurement(); } else { self.pending_content_measurement = true; }
+    let cfg = DocumentConfig::default();
+    let new_doc = HtmlDocument::from_html(html, cfg);
         let scroll = self.doc.viewport_scroll();
         let viewport = self.doc.viewport().clone();
         self.doc = Box::new(new_doc);
         self.doc.set_viewport(viewport);
         self.doc.set_viewport_scroll(scroll);
+    // Perform initial style/layout/shaping before first real frame so metrics capture them
+    self.doc.resolve();
     debug_log(&format!("load_html: new document length={} chars", html.len()));
     self.content_loaded = true;
-    self.needs_render = true; // schedule first real paint; actual render will happen on next render_once call (timer or explicit)
-    // Optionally trigger immediate render to minimize latency
-    self.render_once();
+    if swapchain_ready {
+        self.needs_render = true; // schedule first real paint now
+        self.render_once();
+    } else {
+        // Will render automatically when swapchain attaches
+        debug_log("load_html: swapchain not yet ready; deferring initial measurement start until attach");
+    }
     }
 
     // Input bridging (to be called from C# event handlers)
@@ -604,6 +607,17 @@ impl BlitzHost {
         };
     self.doc.handle_ui_event(UiEvent::KeyUp(evt));
     self.needs_render = true;
+    }
+
+    // Receive sub-phase timing from C# attacher (kind codes: 1=UI add,2=SetSwapChain)
+    pub fn report_attach_subphase(&mut self, kind: u8, ms: f32) {
+        if let Some(r) = self.renderer_mut() {
+            match kind {
+                1 => r.add_host_panel_attach_sub_ui_add_ms(ms),
+                2 => r.add_host_panel_attach_sub_set_swapchain_ms(ms),
+                _ => {}
+            }
+        }
     }
 }
 

@@ -21,11 +21,14 @@
     <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
     <Content Include="Assets\StoreLogo.png" />
     <Content Include="Assets\Wide310x150Logo.scale-200.png" />
-    <Content Include="Assets\demo.html">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </Content>
   </ItemGroup>
+
+  <!-- Embed demo.html as an assembly resource; avoids filesystem I/O at runtime while keeping file editable -->
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\demo.html" LogicalName="BlitzWinRTTestApp.Assets.demo.html" />
+  </ItemGroup>
+
+  <!-- Removed prior code-gen target; using EmbeddedResource + lazy loader helper instead -->
 
   <ItemGroup>
     <Manifest Include="$(ApplicationManifest)" />

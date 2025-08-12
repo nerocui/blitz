@@ -1,4 +1,5 @@
 use parley::AlignmentOptions;
+use blitz_metrics; // for start_phase("shape")
 use taffy::{
     AvailableSpace, LayoutPartialTree as _, MaybeMath as _, MaybeResolve as _, NodeId, Position,
     ResolveOrZero as _, Size, compute_leaf_layout,
@@ -13,6 +14,7 @@ impl BaseDocument {
         node_id: usize,
         inputs: taffy::tree::LayoutInput,
     ) -> taffy::LayoutOutput {
+    let _shape_guard = blitz_metrics::start_phase("shape");
         let scale = self.viewport.scale();
 
         // Take inline layout to satisfy borrow checker

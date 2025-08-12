@@ -33,6 +33,8 @@ use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::System::Diagnostics::Debug::OutputDebugStringA;
 use windows::core::PCSTR;
 use std::hash::{Hash, Hasher};
+use std::time::Instant;
+use blitz_metrics::{snapshot as metrics_snapshot, freeze, is_frozen, begin_init_window, end_init_window, unfreeze_and_reset, FrameTimings};
 
 // Cache key for blurred shadow bitmaps (quantized params to limit variety)
 #[derive(Clone, Copy, Eq)]
@@ -268,6 +270,7 @@ pub struct D2DWindowRenderer {
     d2d_ctx: Option<ID2D1DeviceContext>,
     dwrite_factory: Option<IDWriteFactory>,
     dwrite_font_face: Option<IDWriteFontFace>,
+    dwrite_text_format: Option<IDWriteTextFormat>,
     font_face_cache: FxHashMap<FontKey, IDWriteFontFace>,
     // caches
     gradient_cache: FxHashMap<u64, ID2D1Brush>,
@@ -283,10 +286,45 @@ pub struct D2DWindowRenderer {
     debug_shadow_logs: u32,
     last_command_count: u32,
     backbuffer_bitmap: Option<ID2D1Bitmap1>,
+    // --- instrumentation ---
+    init_start: Instant,
+    first_frame_done: bool,
+    first_frame_ms: f32,
+    device_init_ms: f32,
+    backbuffer_create_ms: f32,
+    playback_ms: f32,
+    host_init_ms: f32, // D3D device + swapchain creation (host side)
+    // host init sub-phases
+    host_dxgi_d3d_ms: f32,
+    host_swapchain_ms: f32,
+    host_panel_attach_ms: f32,
+    host_panel_attach_queue_ms: f32,
+    host_panel_attach_exec_ms: f32,
+    host_panel_attach_sub_ui_add_ms: f32,
+    host_panel_attach_sub_set_swapchain_ms: f32,
+    host_first_text_init_ms: f32,
+    frame_start: Instant,
+    fps_accum_time: f32,
+    fps_frame_count: u32,
+    fps: f32,
+    last_frame_metrics: FrameTimings,
 }
 
 impl D2DWindowRenderer {
-    pub fn new() -> Self { Self { swapchain: None, d3d_device: None, d2d_factory: None, d2d_device: None, d2d_ctx: None, dwrite_factory: None, dwrite_font_face: None, font_face_cache: FxHashMap::default(), gradient_cache: FxHashMap::default(), image_cache: FxHashMap::default(), shadow_cache: FxHashMap::default(), shadow_cache_order: std::collections::VecDeque::new(), gaussian_blur_effect: None, scene: D2DScene::default(), width: 1, height: 1, active: false, debug_shadow_logs: 0, last_command_count: 0, backbuffer_bitmap: None } }
+    pub fn new() -> Self { 
+        let init_start = Instant::now();
+    begin_init_window(init_start);
+    Self { swapchain: None, d3d_device: None, d2d_factory: None, d2d_device: None, d2d_ctx: None, dwrite_factory: None, dwrite_font_face: None, dwrite_text_format: None, font_face_cache: FxHashMap::default(), gradient_cache: FxHashMap::default(), image_cache: FxHashMap::default(), shadow_cache: FxHashMap::default(), shadow_cache_order: std::collections::VecDeque::new(), gaussian_blur_effect: None, scene: D2DScene::default(), width: 1, height: 1, active: false, debug_shadow_logs: 0, last_command_count: 0, backbuffer_bitmap: None, init_start, first_frame_done: false, first_frame_ms: 0.0, device_init_ms: 0.0, backbuffer_create_ms: 0.0, playback_ms: 0.0, host_init_ms: 0.0, host_dxgi_d3d_ms:0.0, host_swapchain_ms:0.0, host_panel_attach_ms:0.0, host_panel_attach_queue_ms:0.0, host_panel_attach_exec_ms:0.0, host_panel_attach_sub_ui_add_ms:0.0, host_panel_attach_sub_set_swapchain_ms:0.0, host_first_text_init_ms:0.0, frame_start: Instant::now(), fps_accum_time: 0.0, fps_frame_count: 0, fps: 0.0, last_frame_metrics: FrameTimings::default() }
+    }
+
+    pub fn restart_initial_measurement(&mut self) {
+        // Reset metrics and restart init window for real content load
+        unfreeze_and_reset();
+        self.init_start = Instant::now();
+        self.first_frame_done = false;
+        self.first_frame_ms = 0.0;
+        begin_init_window(self.init_start);
+    }
 
     pub fn last_command_count(&self) -> u32 { self.last_command_count }
 
@@ -298,7 +336,25 @@ impl D2DWindowRenderer {
         self.active = true;
     }
 
+    pub fn accumulate_host_init_ms(&mut self, ms: f32) {
+        // Only accumulate while first frame still measuring
+        if !self.first_frame_done {
+            self.host_init_ms += ms;
+        }
+    }
+
+    // Sub-phase accumulators (only while first frame window active)
+    pub fn add_host_dxgi_d3d_ms(&mut self, ms: f32) { if !self.first_frame_done { self.host_dxgi_d3d_ms += ms; } }
+    pub fn add_host_swapchain_ms(&mut self, ms: f32) { if !self.first_frame_done { self.host_swapchain_ms += ms; } }
+    pub fn add_host_panel_attach_ms(&mut self, ms: f32) { if !self.first_frame_done { self.host_panel_attach_ms += ms; } }
+    pub fn add_host_panel_attach_queue_ms(&mut self, ms: f32) { if !self.first_frame_done { self.host_panel_attach_queue_ms += ms; } }
+    pub fn add_host_panel_attach_exec_ms(&mut self, ms: f32) { if !self.first_frame_done { self.host_panel_attach_exec_ms += ms; } }
+    pub fn add_host_panel_attach_sub_ui_add_ms(&mut self, ms: f32) { if !self.first_frame_done { self.host_panel_attach_sub_ui_add_ms += ms; } }
+    pub fn add_host_panel_attach_sub_set_swapchain_ms(&mut self, ms: f32) { if !self.first_frame_done { self.host_panel_attach_sub_set_swapchain_ms += ms; } }
+    pub fn add_host_first_text_init_ms(&mut self, ms: f32) { if !self.first_frame_done { self.host_first_text_init_ms += ms; } }
+
     fn init_devices_from_swapchain(&mut self) {
+    let t0 = Instant::now();
         if let Some(sc) = &self.swapchain {
             unsafe {
                 // Get D3D11 device from swapchain
@@ -342,6 +398,7 @@ impl D2DWindowRenderer {
                 }
             }
         }
+    self.device_init_ms = t0.elapsed().as_secs_f32() * 1000.0;
     }
 
     /// Release any bound D2D target (backbuffer bitmap) so the swapchain can ResizeBuffers.
@@ -359,42 +416,56 @@ impl D2DWindowRenderer {
     }
 
     fn recreate_backbuffer_bitmap(&mut self, surface: &IDXGISurface) -> bool {
+        let t0 = Instant::now();
         self.backbuffer_bitmap = None;
         let ctx = match &self.d2d_ctx { Some(c) => c, None => { debug_log_d2d("recreate_backbuffer_bitmap: no D2D ctx"); return false; } };
         unsafe {
-            // Improvement: try context DPI first, then inherit, then 96dpi fallback to mitigate E_INVALIDARG.
             let mut dpi_x = 0.0f32; let mut dpi_y = 0.0f32; ctx.GetDpi(&mut dpi_x, &mut dpi_y);
-            if let Ok(desc) = surface.GetDesc() { verbose_log_d2d(&format!("recreate_backbuffer_bitmap: surface desc fmt={:?} w={} h={}", desc.Format, desc.Width, desc.Height)); }
+            if let Ok(desc) = surface.GetDesc() {
+                verbose_log_d2d(&format!("recreate_backbuffer_bitmap: surface desc fmt={:?} w={} h={}", desc.Format, desc.Width, desc.Height));
+            }
+            // Preferred properties using current context DPI
             let props_ctx = D2D1_BITMAP_PROPERTIES1 {
                 pixelFormat: D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED },
-                dpiX: dpi_x, dpiY: dpi_y,
+                dpiX: dpi_x,
+                dpiY: dpi_y,
                 bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET,
                 colorContext: std::mem::ManuallyDrop::new(None::<ID2D1ColorContext>),
             };
-            let attempt_ctx = ctx.CreateBitmapFromDxgiSurface(surface, Some(&props_ctx));
-            match attempt_ctx {
-                Ok(bmp) => { verbose_log_d2d("recreate_backbuffer_bitmap: created with context DPI props"); self.backbuffer_bitmap = Some(bmp); return true; }
-                Err(e_ctx) => { verbose_log_d2d(&format!("recreate_backbuffer_bitmap: context DPI props failed hr={:?}; trying inherit", e_ctx)); }
+            if let Ok(bmp) = ctx.CreateBitmapFromDxgiSurface(surface, Some(&props_ctx)) {
+                self.backbuffer_bitmap = Some(bmp);
             }
-            if let Ok(bmp_inherit) = ctx.CreateBitmapFromDxgiSurface(surface, None) {
-                verbose_log_d2d("recreate_backbuffer_bitmap: created with inherited props (None)");
-                self.backbuffer_bitmap = Some(bmp_inherit); return true;
+            // Fallback: inherit surface props (Some drivers reject explicit props)
+            if self.backbuffer_bitmap.is_none() {
+                if let Ok(bmp_inherit) = ctx.CreateBitmapFromDxgiSurface(surface, None) {
+                    self.backbuffer_bitmap = Some(bmp_inherit);
+                }
             }
-            // Final fallback: explicit 96dpi
-            let props_96 = D2D1_BITMAP_PROPERTIES1 {
-                pixelFormat: D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED },
-                dpiX: 96.0, dpiY: 96.0,
-                bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET,
-                colorContext: std::mem::ManuallyDrop::new(None::<ID2D1ColorContext>),
-            };
-            match ctx.CreateBitmapFromDxgiSurface(surface, Some(&props_96)) {
-                Ok(bmp3) => { debug_log_d2d("recreate_backbuffer_bitmap: created with 96dpi fallback props"); self.backbuffer_bitmap = Some(bmp3); true }
-                Err(e3) => { debug_log_d2d(&format!("recreate_backbuffer_bitmap: all creation attempts failed e3={:?}", e3)); false }
+            // Final fallback: force 96 DPI props
+            if self.backbuffer_bitmap.is_none() {
+                let props_96 = D2D1_BITMAP_PROPERTIES1 {
+                    pixelFormat: D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED },
+                    dpiX: 96.0,
+                    dpiY: 96.0,
+                    bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET,
+                    colorContext: std::mem::ManuallyDrop::new(None::<ID2D1ColorContext>),
+                };
+                if let Ok(bmp3) = ctx.CreateBitmapFromDxgiSurface(surface, Some(&props_96)) {
+                    self.backbuffer_bitmap = Some(bmp3);
+                }
             }
         }
+        let ok = self.backbuffer_bitmap.is_some();
+        if ok {
+            self.backbuffer_create_ms = t0.elapsed().as_secs_f32() * 1000.0;
+        } else {
+            debug_log_d2d("recreate_backbuffer_bitmap: all creation attempts failed");
+        }
+        ok
     }
 
     fn playback(&mut self, target: &ID2D1Bitmap1) {
+    let t0 = Instant::now();
         let ctx = match &self.d2d_ctx {
             Some(ctx) => ctx.clone(),
             None => return,
@@ -522,8 +593,116 @@ impl D2DWindowRenderer {
             vlog!("counts fp={} sp={} cmds={} shadows={}", fill_path_count, stroke_path_count, command_count, shadow_count);
             // If no commands, fallback bg already drawn earlier.
             // Note: SetTransform removed - not available in this windows-rs version
+            // Draw overlay before EndDraw so it is visible
+            self.draw_debug_overlay(&ctx);
             let end_res = ctx.EndDraw(None, None);
             if let Err(e) = end_res { debug_log_d2d(&format!("EndDraw error {:?}", e)); } else { vlog!("EndDraw ok"); }
+        }
+        self.playback_ms = t0.elapsed().as_secs_f32() * 1000.0;
+    }
+
+    fn ensure_text_format(&mut self) {
+        if self.dwrite_text_format.is_some() { return; }
+        let t0 = Instant::now();
+        let factory = match &self.dwrite_factory { Some(f) => f.clone(), None => return };
+        unsafe {
+            use windows::core::w;
+            if let Ok(tf) = factory.CreateTextFormat(w!("Consolas"), None, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 12.0, w!("en-US")) {
+                self.dwrite_text_format = Some(tf);
+                let ms = t0.elapsed().as_secs_f32()*1000.0;
+                self.add_host_first_text_init_ms(ms);
+            }
+        }
+    }
+
+    fn draw_debug_overlay(&mut self, ctx: &ID2D1DeviceContext) {
+        if std::env::var("BLITZ_DISABLE_OVERLAY").map(|v| v=="1" || v.eq_ignore_ascii_case("true")).unwrap_or(false) { return; }
+        self.ensure_text_format();
+        let fmt = match &self.dwrite_text_format { Some(f) => f.clone(), None => return };
+        // FPS accumulation update (frame duration accounted externally in render()) not here.
+        let metrics = &self.last_frame_metrics;
+        let (slow_label, slow_ms) = metrics.slowest_phase();
+        // Extended slowest including device/backbuffer/playback/host
+        let mut slowest_overall_label = slow_label;
+        let mut slowest_overall_ms = slow_ms;
+        for (lab, val) in [("device", self.device_init_ms), ("backbuf", self.backbuffer_create_ms), ("play", self.playback_ms), ("host", self.host_init_ms)] {
+            if val > slowest_overall_ms { slowest_overall_ms = val; slowest_overall_label = lab; }
+        }
+        // init shown is first_frame_ms captured at first-frame freeze (sum of pipeline phases then)
+        // Higher precision for very fast phases (<0.1ms may show as 0.0 otherwise)
+        let measured_sum = metrics.html_parse_ms + metrics.style_ms + metrics.layout_ms + metrics.text_shaping_ms + metrics.scene_build_ms + self.device_init_ms + self.backbuffer_create_ms + self.playback_ms + self.host_init_ms;
+        let unexplained = if self.first_frame_ms > 0.0 { (self.first_frame_ms - measured_sum).max(0.0) } else { 0.0 };
+        let pct = |v: f32| if self.first_frame_ms > 0.0 { (v / self.first_frame_ms * 100.0).min(999.9) } else { 0.0 };
+        let stats_line1 = format!(
+            "init {:.1} parse {:.3} style {:.3} layout {:.3} shape {:.3} scene {:.3}",
+            self.first_frame_ms,
+            metrics.html_parse_ms,
+            metrics.style_ms,
+            metrics.layout_ms,
+            metrics.text_shaping_ms,
+            metrics.scene_build_ms,
+        );
+        // Compute a naive critical path: max(content pipeline total, host non-overlapped (host_init_ms) + attach exec; queue wait assumed overlapped)
+        let content_path = metrics.html_parse_ms + metrics.style_ms + metrics.layout_ms + metrics.text_shaping_ms + metrics.scene_build_ms;
+        let critical_path = content_path.max(self.host_init_ms + self.host_panel_attach_exec_ms + self.device_init_ms); // include device init on host side if present
+    let stats_line2 = format!(
+            "dev {:.1} host {:.1} cp {:.1} d3d {:.1} sc {:.1} att {:.1} (w {:.1} x {:.1}) txt {:.1} back {:.1} play {:.1} unx {:.1} slow {} {:.2} (all:{} {:.2}) fps {:.1} cmds {}",
+            self.device_init_ms,
+            self.host_init_ms,
+            critical_path,
+            self.host_dxgi_d3d_ms,
+            self.host_swapchain_ms,
+            self.host_panel_attach_ms + self.host_panel_attach_queue_ms + self.host_panel_attach_exec_ms,
+            self.host_panel_attach_queue_ms,
+            self.host_panel_attach_exec_ms,
+            self.host_first_text_init_ms,
+            self.backbuffer_create_ms,
+            self.playback_ms,
+            unexplained,
+            slow_label,
+            slow_ms,
+            slowest_overall_label,
+            slowest_overall_ms,
+            self.fps,
+            self.last_command_count
+        );
+    let stats_line2b = format!("att.sub ui_add {:.1} set_sw {:.1}", self.host_panel_attach_sub_ui_add_ms, self.host_panel_attach_sub_set_swapchain_ms);
+        let stats_line3 = if self.first_frame_ms > 0.0 {
+            format!(
+                "pct parse {:.0} sty {:.0} lay {:.0} shp {:.0} scn {:.0} dev {:.0} host {:.0} attw {:.0} atx {:.0} cp {:.0} back {:.0} play {:.0} unx {:.0}",
+                pct(metrics.html_parse_ms),
+                pct(metrics.style_ms),
+                pct(metrics.layout_ms),
+                pct(metrics.text_shaping_ms),
+                pct(metrics.scene_build_ms),
+                pct(self.device_init_ms),
+                pct(self.host_init_ms),
+                pct(self.host_panel_attach_queue_ms),
+                pct(self.host_panel_attach_exec_ms),
+                pct(critical_path),
+                pct(self.backbuffer_create_ms),
+                pct(self.playback_ms),
+                pct(unexplained)
+            )
+        } else { String::new() };
+    let stats = format!("{}\n{}\n{}\n{}", stats_line1, stats_line2, stats_line2b, stats_line3);
+        // Background rect enlarged for extra fields
+    let bg = D2D_RECT_F { left: 6.0, top: 6.0, right: 6.0 + 980.0, bottom: 6.0 + 110.0 };
+        let bg_brush = self.create_solid_brush(Color::new([0.0,0.0,0.0,0.55]));
+        unsafe { ctx.FillRectangle(&bg, &bg_brush); }
+        // Text brush
+        let txt_brush = self.create_solid_brush(Color::new([1.0,1.0,1.0,0.95]));
+        // Convert text to wide
+        let wide: Vec<u16> = stats.encode_utf16().collect();
+        unsafe {
+            ctx.DrawText(
+                &wide,
+                &fmt,
+                &D2D_RECT_F { left: 10.0, top: 10.0, right: 970.0, bottom: 200.0 },
+                &txt_brush,
+                D2D1_DRAW_TEXT_OPTIONS_NONE,
+                DWRITE_MEASURING_MODE_NATURAL,
+            );
         }
     }
 
@@ -890,6 +1069,8 @@ impl WindowRenderer for D2DWindowRenderer {
     fn set_size(&mut self, width: u32, height: u32) { self.width = width; self.height = height; }
     fn render<F: FnOnce(&mut Self::ScenePainter<'_>)>(&mut self, draw_fn: F) {
         if !self.active { return; }
+        // Start frame timer for FPS
+        self.frame_start = Instant::now();
         // Build scene
         {
             let mut painter = D2DScenePainter { scene: &mut self.scene };
@@ -899,6 +1080,8 @@ impl WindowRenderer for D2DWindowRenderer {
             let after = painter.scene.commands.len();
             verbose_log_d2d(&format!("D2DWindowRenderer::render: after draw_fn commands={}", after));
         }
+    // Snapshot metrics immediately after scene build so overlay in this frame reflects them
+    self.last_frame_metrics = metrics_snapshot();
         // Acquire backbuffer and wrap in D2D bitmap
         if let Some(sc) = &self.swapchain { unsafe {
             if let Ok(surface) = sc.GetBuffer::<IDXGISurface>(0) {
@@ -929,5 +1112,21 @@ impl WindowRenderer for D2DWindowRenderer {
                 }
             }
         }}
+        // Frame end / FPS calc
+        let dt = self.frame_start.elapsed().as_secs_f32();
+        self.fps_accum_time += dt;
+        self.fps_frame_count += 1;
+        if self.fps_accum_time >= 0.5 {
+            self.fps = self.fps_frame_count as f32 / self.fps_accum_time;
+            self.fps_accum_time = 0.0;
+            self.fps_frame_count = 0;
+        }
+    if !self.first_frame_done {
+            // first_frame_ms is total wall-clock from renderer construction to end of first frame
+            self.first_frame_ms = self.init_start.elapsed().as_secs_f32() * 1000.0;
+            self.first_frame_done = true;
+            end_init_window();
+            if !is_frozen() { freeze(); }
+        }
     }
 }

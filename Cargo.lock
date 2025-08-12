@@ -274,6 +274,7 @@ name = "anyrender_d2d"
 version = "0.5.0"
 dependencies = [
  "anyrender",
+ "blitz-metrics",
  "kurbo",
  "peniko",
  "rustc-hash 1.1.0",
@@ -768,6 +769,7 @@ dependencies = [
  "app_units",
  "atomic_refcell",
  "bitflags 2.9.1",
+ "blitz-metrics",
  "blitz-traits",
  "color",
  "cssparser",
@@ -830,9 +832,17 @@ name = "blitz-html"
 version = "0.1.0-rc.3"
 dependencies = [
  "blitz-dom",
+ "blitz-metrics",
  "blitz-traits",
  "html5ever",
  "xml5ever",
+]
+
+[[package]]
+name = "blitz-metrics"
+version = "0.1.0"
+dependencies = [
+ "once_cell",
 ]
 
 [[package]]
@@ -852,6 +862,7 @@ dependencies = [
  "anyrender",
  "anyrender_svg",
  "blitz-dom",
+ "blitz-metrics",
  "blitz-traits",
  "color",
  "euclid",

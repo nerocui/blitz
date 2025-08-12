@@ -39,6 +39,7 @@ log_phase_times = ["debug_timer/enable"]
 blitz-traits = { workspace = true }
 stylo_taffy = { workspace = true, features = ["default"] }
 debug_timer = { workspace = true }
+blitz-metrics = { workspace = true }
 
 # Servo dependencies
 style = { workspace = true }

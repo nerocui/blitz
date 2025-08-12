@@ -66,6 +66,7 @@ impl BlitzDomPainter<'_> {
     /// This assumes styles are resolved and layout is complete.
     /// Make sure you do those before trying to render
     pub fn paint_scene(&self, scene: &mut impl PaintScene) {
+    let scene_guard = blitz_metrics::start_phase("scene");
         // Simply render the document (the root element (note that this is not the same as the root node)))
         scene.reset();
         let viewport_scroll = self.dom.as_ref().viewport_scroll();
@@ -109,7 +110,7 @@ impl BlitzDomPainter<'_> {
             scene.fill(Fill::NonZero, Affine::IDENTITY, bg_color, None, &rect);
         }
 
-        self.render_element(
+    self.render_element(
             scene,
             root_id,
             Point {
@@ -117,6 +118,7 @@ impl BlitzDomPainter<'_> {
                 y: -viewport_scroll.y,
             },
         );
+    scene_guard.end();
 
         // Render debug overlay
         if self.devtools.highlight_hover {

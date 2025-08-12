@@ -14,7 +14,8 @@ namespace BlitzWinUI
     {
         // Pass an object that implements BlitzWinUI.ISwapChainAttacher.
         // The component will create a DXGI swapchain and invoke AttachSwapChain so C# can set it on the panel.
-        Host(Object attacher, UInt32 width, UInt32 height, Single scale);
+    // Single constructor requires initial HTML to eliminate extra roundtrip.
+    Host(Object attacher, UInt32 width, UInt32 height, Single scale, String initialHtml);
         void SetPanel(Object attacher);
         void Resize(UInt32 width, UInt32 height, Single scale);
         void RenderOnce();
@@ -25,5 +26,7 @@ namespace BlitzWinUI
     void PointerMove(Single x, Single y, UInt32 buttons, UInt32 modifiers);
     void PointerDown(Single x, Single y, UInt8 button, UInt32 buttons, UInt32 modifiers);
     void PointerUp(Single x, Single y, UInt8 button, UInt32 buttons, UInt32 modifiers);
+    // Report a host-side attach sub-phase timing (kind codes: 0=Begin,1=PanelAdd,2=SetSwapChain,3=End, 100+ reserved)
+    void ReportAttachSubPhase(UInt8 kind, Single ms);
     }
 }

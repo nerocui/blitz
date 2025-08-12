@@ -81,16 +81,21 @@ namespace BlitzWinRTTestApp
                 _attacher = new SwapChainAttacher(BlitzPanel);
                 LogMessages($"BlitzPanel_Loaded: Created attacher: {_attacher}");
                 
-                // Wait briefly to ensure the panel is fully initialized
-                await Task.Delay(100);
+                // Removed artificial delay; rely on SwapChainPanel Loaded event ordering
                 
                 // First explicitly test the attacher works correctly
                 LogMessages("BlitzPanel_Loaded: Testing TestAttacherConnection method on attacher directly");
                 var directTest = _attacher.TestAttacherConnection();
                 LogMessages($"BlitzPanel_Loaded: Direct test result: {directTest}");
                 
-                LogMessages("BlitzPanel_Loaded: Creating Host with attacher");
-                _host = new Host(_attacher, width, height, scale);
+                // Load HTML from packaged Assets (ms-appx URI) before constructing Host so we can pass it directly
+                // Use compile-time embedded HTML (generated in EmbeddedContent.DemoHtml)
+                var htmlContent = EmbeddedContent.DemoHtml;
+                LogMessages($"BlitzPanel_Loaded: Using embedded demo HTML ({htmlContent.Length} chars)");
+                LogMessages("BlitzPanel_Loaded: Creating Host with attacher (embedded HTML)");
+                _host = new Host(_attacher, width, height, scale, htmlContent);
+                // Kick an immediate first render to avoid waiting for next CompositionTarget tick
+                try { _host.RenderOnce(); } catch { /* ignore early render errors */ }
                 LogMessages($"BlitzPanel_Loaded: Host created successfully: {_host}");
 
                 // If user toggled verbose before host creation, apply now
@@ -112,26 +117,8 @@ namespace BlitzWinRTTestApp
                     LogMessages($"BlitzPanel_Loaded: Connection test exception: {testEx.GetType().Name}: {testEx.Message}");
                 }
 
-                // Load HTML from packaged Assets (ms-appx URI). Works for packaged WinUI 3 apps.
-                string htmlContent;
-                try
-                {
-                    StorageFolder installedLocation = Package.Current.InstalledLocation;
-                    StorageFolder assetsFolder = await installedLocation.GetFolderAsync("Assets");
-                    StorageFile file = await assetsFolder.GetFileAsync("demo.html");
-
-                    htmlContent = await FileIO.ReadTextAsync(file);
-                    LogMessages($"Loaded HTML from Assets/demo.html ({htmlContent.Length} chars)");
-                }
-                catch (Exception loadEx)
-                {
-                    htmlContent = $"<html><body><h1>Asset Load Error</h1><p>{System.Net.WebUtility.HtmlEncode(loadEx.Message)}</p><p>Ensure Assets/demo.html is marked as Content.</p></body></html>";
-                    LogMessages("Failed to load Assets/demo.html: " + loadEx.Message);
-                }
-
-                _host.LoadHtml(htmlContent);
                 // _host.SetVerboseLogging(true); API to turn on verbose logging on the rust side
-                LogMessages("BlitzPanel_Loaded: HTML loaded");
+                LogMessages("BlitzPanel_Loaded: HTML passed via constructor");
 
                 // Render on XAML composition ticks
                 CompositionTarget.Rendering += CompositionTarget_Rendering;

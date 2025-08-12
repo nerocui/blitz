@@ -67,6 +67,7 @@ impl<'m, 'doc> DocumentHtmlParser<'m, 'doc> {
     }
 
     pub fn parse_into_mutator<'a, 'd>(mutr: &'a mut DocumentMutator<'d>, html: &str) {
+    	let guard = blitz_metrics::start_phase("parse");
         let mut sink = DocumentHtmlParser::new(mutr);
 
         let is_xhtml_doc = html.starts_with("<?xml")
@@ -100,6 +101,7 @@ impl<'m, 'doc> DocumentHtmlParser<'m, 'doc> {
                 .read_from(&mut html.as_bytes())
                 .unwrap();
         }
+        guard.end();
     }
 
     pub fn parse_inner_html_into_mutator<'a, 'd>(
