@@ -1,0 +1,9 @@
+namespace SwapChainAttacher
+{
+    [default_interface]
+    runtimeclass Attacher : BlitzWinUI.ISwapChainAttacher
+    {
+        // Accept the host's SwapChainPanel (as Object) so we can later call SetSwapChain on it.
+        Attacher(Object panel);
+    }
+}

@@ -243,8 +243,6 @@ pub struct HostActivationFactory;
 
 #[allow(non_snake_case)]
 impl IHostFactory_Impl for HostActivationFactory_Impl {
-        
-        
 
     fn CreateInstance(
         &self,
@@ -255,18 +253,29 @@ impl IHostFactory_Impl for HostActivationFactory_Impl {
         initial_html: &windows_core::HSTRING,
     ) -> windows_core::Result<bindings::Host> {
         let runtime = HostRuntime::new();
-        crate::winrt_component::debug_log(&format!("HostActivationFactory::CreateInstance: entered ({}x{}, scale {})", width, height, scale));
+    crate::winrt_component::debug_log(&format!("HostActivationFactory::CreateInstance: entered ({}x{}, scale {})", width, height, scale));
+    // (Module path logging removed; required Win32 feature gates are not enabled for this crate.)
         let html_str = initial_html.to_string();
         if let Some(insp) = attacher.as_ref() {
             crate::winrt_component::debug_log(&format!("HostActivationFactory::CreateInstance: inspecting attacher object {:?}", insp));
-            if let Ok(att) = insp.cast::<ISwapChainAttacher>() {
-                crate::winrt_component::debug_log("HostActivationFactory::CreateInstance: cast to ISwapChainAttacher succeeded");
-                if let Ok(mut shell) = winrt_component::BlitzHost::new_with_attacher(att, width, height, scale) {
-                    if !html_str.is_empty() { shell.load_html(&html_str); }
-                    *runtime.inner.lock().unwrap() = Some(Box::new(shell));
-                    let insp: IInspectable = runtime.into();
-                    let host: bindings::Host = Interface::cast(&insp)?;
-                    return Ok(host);
+            match insp.cast::<ISwapChainAttacher>() {
+                Ok(att) => {
+                    crate::winrt_component::debug_log("HostActivationFactory::CreateInstance: cast to ISwapChainAttacher succeeded");
+                    if let Ok(mut shell) = winrt_component::BlitzHost::new_with_attacher(att, width, height, scale) {
+                        if !html_str.is_empty() { shell.load_html(&html_str); }
+                        *runtime.inner.lock().unwrap() = Some(Box::new(shell));
+                        let insp: IInspectable = runtime.into();
+                        let host: bindings::Host = Interface::cast(&insp)?;
+                        return Ok(host);
+                    }
+                }
+                Err(err) => {
+                    crate::winrt_component::debug_log(&format!("HostActivationFactory::CreateInstance: cast to ISwapChainAttacher FAILED hr={:?}", err.code()));
+                    if let Ok(name) = insp.GetRuntimeClassName() {
+                        crate::winrt_component::debug_log(&format!("  RuntimeClassName='{}'", name.to_string()));
+                    }
+                    crate::winrt_component::debug_log(&format!("  Expected ISwapChainAttacher IID={:?}", <ISwapChainAttacher as Interface>::IID));
+                    crate::winrt_component::debug_log("  Likely cause: object is a plain C# class not emitted as a WinRT runtime class implementing the interface.");
                 }
             }
         }

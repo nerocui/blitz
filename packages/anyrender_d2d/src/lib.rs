@@ -297,7 +297,6 @@ pub struct D2DWindowRenderer {
     // host init sub-phases
     host_dxgi_d3d_ms: f32,
     host_swapchain_ms: f32,
-    host_panel_attach_ms: f32,
     host_panel_attach_queue_ms: f32,
     host_panel_attach_exec_ms: f32,
     host_panel_attach_sub_ui_add_ms: f32,
@@ -308,13 +307,15 @@ pub struct D2DWindowRenderer {
     fps_frame_count: u32,
     fps: f32,
     last_frame_metrics: FrameTimings,
+    // Diagnostic: draw colored quadrants when true and no scene commands (placeholder visibility test)
+    test_pattern: bool,
 }
 
 impl D2DWindowRenderer {
     pub fn new() -> Self { 
         let init_start = Instant::now();
     begin_init_window(init_start);
-    Self { swapchain: None, d3d_device: None, d2d_factory: None, d2d_device: None, d2d_ctx: None, dwrite_factory: None, dwrite_font_face: None, dwrite_text_format: None, font_face_cache: FxHashMap::default(), gradient_cache: FxHashMap::default(), image_cache: FxHashMap::default(), shadow_cache: FxHashMap::default(), shadow_cache_order: std::collections::VecDeque::new(), gaussian_blur_effect: None, scene: D2DScene::default(), width: 1, height: 1, active: false, debug_shadow_logs: 0, last_command_count: 0, backbuffer_bitmap: None, init_start, first_frame_done: false, first_frame_ms: 0.0, device_init_ms: 0.0, backbuffer_create_ms: 0.0, playback_ms: 0.0, host_init_ms: 0.0, host_dxgi_d3d_ms:0.0, host_swapchain_ms:0.0, host_panel_attach_ms:0.0, host_panel_attach_queue_ms:0.0, host_panel_attach_exec_ms:0.0, host_panel_attach_sub_ui_add_ms:0.0, host_panel_attach_sub_set_swapchain_ms:0.0, host_first_text_init_ms:0.0, frame_start: Instant::now(), fps_accum_time: 0.0, fps_frame_count: 0, fps: 0.0, last_frame_metrics: FrameTimings::default() }
+    Self { swapchain: None, d3d_device: None, d2d_factory: None, d2d_device: None, d2d_ctx: None, dwrite_factory: None, dwrite_font_face: None, dwrite_text_format: None, font_face_cache: FxHashMap::default(), gradient_cache: FxHashMap::default(), image_cache: FxHashMap::default(), shadow_cache: FxHashMap::default(), shadow_cache_order: std::collections::VecDeque::new(), gaussian_blur_effect: None, scene: D2DScene::default(), width: 1, height: 1, active: false, debug_shadow_logs: 0, last_command_count: 0, backbuffer_bitmap: None, init_start, first_frame_done: false, first_frame_ms: 0.0, device_init_ms: 0.0, backbuffer_create_ms: 0.0, playback_ms: 0.0, host_init_ms: 0.0, host_dxgi_d3d_ms:0.0, host_swapchain_ms:0.0, host_panel_attach_queue_ms:0.0, host_panel_attach_exec_ms:0.0, host_panel_attach_sub_ui_add_ms:0.0, host_panel_attach_sub_set_swapchain_ms:0.0, host_first_text_init_ms:0.0, frame_start: Instant::now(), fps_accum_time: 0.0, fps_frame_count: 0, fps: 0.0, last_frame_metrics: FrameTimings::default(), test_pattern: false }
     }
 
     pub fn restart_initial_measurement(&mut self) {
@@ -327,6 +328,8 @@ impl D2DWindowRenderer {
     }
 
     pub fn last_command_count(&self) -> u32 { self.last_command_count }
+
+    pub fn set_test_pattern(&mut self, on: bool) { self.test_pattern = on; }
 
     pub fn set_swapchain(&mut self, sc: IDXGISwapChain1, width: u32, height: u32) {
         self.width = width.max(1);
@@ -346,7 +349,6 @@ impl D2DWindowRenderer {
     // Sub-phase accumulators (only while first frame window active)
     pub fn add_host_dxgi_d3d_ms(&mut self, ms: f32) { if !self.first_frame_done { self.host_dxgi_d3d_ms += ms; } }
     pub fn add_host_swapchain_ms(&mut self, ms: f32) { if !self.first_frame_done { self.host_swapchain_ms += ms; } }
-    pub fn add_host_panel_attach_ms(&mut self, ms: f32) { if !self.first_frame_done { self.host_panel_attach_ms += ms; } }
     pub fn add_host_panel_attach_queue_ms(&mut self, ms: f32) { if !self.first_frame_done { self.host_panel_attach_queue_ms += ms; } }
     pub fn add_host_panel_attach_exec_ms(&mut self, ms: f32) { if !self.first_frame_done { self.host_panel_attach_exec_ms += ms; } }
     pub fn add_host_panel_attach_sub_ui_add_ms(&mut self, ms: f32) { if !self.first_frame_done { self.host_panel_attach_sub_ui_add_ms += ms; } }
@@ -503,6 +505,22 @@ impl D2DWindowRenderer {
             let shadow_count = commands.iter().filter(|c| matches!(c, Command::BoxShadow { .. })).count();
             if shadow_count > 0 { vlog!("shadows: {}", shadow_count); }
             
+            // Diagnostic test pattern if no commands (placeholder frame visibility)
+            if command_count == 0 && self.test_pattern {
+                let size = target.GetSize();
+                let hw = size.width * 0.5; let hh = size.height * 0.5;
+                let rects = [
+                    (D2D_RECT_F { left:0.0, top:0.0, right:hw, bottom:hh }, Color::new([1.0,0.0,0.0,1.0])), // TL red
+                    (D2D_RECT_F { left:hw, top:0.0, right:size.width, bottom:hh }, Color::new([0.0,1.0,0.0,1.0])), // TR green
+                    (D2D_RECT_F { left:0.0, top:hh, right:hw, bottom:size.height }, Color::new([0.0,0.0,1.0,1.0])), // BL blue
+                    (D2D_RECT_F { left:hw, top:hh, right:size.width, bottom:size.height }, Color::new([1.0,1.0,0.0,1.0])), // BR yellow
+                ];
+                for (r,c) in rects {
+                    let brush = self.create_solid_brush(c);
+                    let _ = ctx.FillRectangle(&r, &brush);
+                }
+                debug_log_d2d("playback: drew test pattern (placeholder)");
+            }
             // Playback counters
             let mut fill_path_count = 0u32;
             let mut stroke_path_count = 0u32;
@@ -652,7 +670,7 @@ impl D2DWindowRenderer {
             critical_path,
             self.host_dxgi_d3d_ms,
             self.host_swapchain_ms,
-            self.host_panel_attach_ms + self.host_panel_attach_queue_ms + self.host_panel_attach_exec_ms,
+            self.host_panel_attach_queue_ms + self.host_panel_attach_exec_ms,
             self.host_panel_attach_queue_ms,
             self.host_panel_attach_exec_ms,
             self.host_first_text_init_ms,

@@ -57,6 +57,8 @@ pub struct BlitzHost {
     // Queued attach timing
     attach_queue_start: Option<std::time::Instant>,
     attach_pending: bool,
+    // First-frame placeholder control: ensure we never leave the panel transparent; draw exactly one placeholder frame if real content not yet loaded when attach completes.
+    placeholder_drawn: bool,
 }
 
 impl BlitzHost {
@@ -90,6 +92,7 @@ impl BlitzHost {
             pending_swapchain: None,
             attach_queue_start: None,
             attach_pending: false,
+            placeholder_drawn: false,
         })
     }
     
@@ -203,7 +206,8 @@ impl BlitzHost {
                 BufferCount: 2,
                 Scaling: DXGI_SCALING_STRETCH,
                 SwapEffect: DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
-                AlphaMode: windows::Win32::Graphics::Dxgi::Common::DXGI_ALPHA_MODE_PREMULTIPLIED, // correct enum value for premultiplied
+                // Use IGNORE initially to guarantee opaque composition (avoid transparent first frame issues in Release)
+                AlphaMode: windows::Win32::Graphics::Dxgi::Common::DXGI_ALPHA_MODE_IGNORE,
                 Flags: 0,
             };
             debug_log(&format!(
@@ -319,8 +323,12 @@ impl BlitzHost {
             }
             self.renderer.accumulate_host_init_ms(effective);
         }
-        // If content already available, render immediately (first real frame). Otherwise mark dirty for later.
-        if self.content_loaded { self.needs_render = true; }
+        // If content already available, render immediately (first real frame). Otherwise draw a single placeholder frame if we have not yet.
+        if self.content_loaded || !self.placeholder_drawn {
+            // For real content OR first placeholder we schedule a render
+            self.needs_render = true;
+            self.render_once();
+        }
         self.attach_pending = false;
     }
 
@@ -377,102 +385,73 @@ impl BlitzHost {
     }
 
     pub fn render_once(&mut self) {
-    // First check if async panel attach completed
-    self.maybe_execute_queued_attach();
-    // Always allow a first placeholder render even before content loads so we can show debug background
-    if !self.content_loaded && !self.needs_render {
-        // Nothing requested; no placeholder invalidation
-        return;
-    }
-    if self.content_loaded && !self.needs_render { return; }
-    debug_log(&format!("render_once: begin (dirty={}, content_loaded={})", self.needs_render, self.content_loaded));
+        // Execute pending attach if any first
+        self.maybe_execute_queued_attach();
+        if !self.content_loaded && !self.needs_render { return; }
+        if self.content_loaded && !self.needs_render { return; }
+        debug_log(&format!("render_once: begin (dirty={}, content_loaded={})", self.needs_render, self.content_loaded));
         let (width, height) = self.doc.viewport().window_size;
         let scale = self.doc.viewport().scale_f64();
         if self.content_loaded { self.doc.resolve(); }
 
-        // Lazy attach fallback: if we have an attacher but no swapchain yet, attempt creation now.
         if self.swapchain.is_none() && self.attacher.is_some() {
             debug_log("render_once: No swapchain yet; attempting lazy creation");
             self.create_and_attach_swapchain();
         }
-        
-    // If we have a panel-backed swapchain, render via Vello (GPU) into an intermediate texture,
-    // then upload/copy into the D3D11 backbuffer.
-        if let Some(sc) = &self.swapchain {
+
+    // Clone swapchain COM pointer out to avoid holding an immutable borrow of self during rendering
+    if let Some(sc) = self.swapchain.clone() {
+            let mut want_enable_test_pattern = false;
+            let mut want_disable_test_pattern = false;
             if self.content_loaded { debug_log("render_once: Found swapchain, attempting to render"); }
             else { debug_log("render_once: Found swapchain, rendering placeholder (no content yet)"); }
             unsafe {
-                // Get back buffer
-                match sc.GetBuffer::<ID3D11Texture2D>(0) {
+        match sc.GetBuffer::<ID3D11Texture2D>(0) {
                     Ok(tex) => {
-                        debug_log("render_once: Successfully got back buffer texture");
-                        
-                        // If we don't have a context yet, derive device/context from the texture
                         if self.d3d_context.is_none() {
-                            debug_log("render_once: Need to get D3D context from texture");
                             let res: &ID3D11Resource = (&tex).into();
-                            match res.GetDevice() {
-                                Ok(device) => {
-                                    match device.GetImmediateContext() {
-                                        Ok(ctx) => {
-                                            debug_log("render_once: Successfully got device and context from texture");
-                                            self.d3d_device = Some(device);
-                                            self.d3d_context = Some(ctx);
-                                        },
-                                        Err(e) => debug_log(&format!("render_once: Failed to get immediate context: {:?}", e)),
-                                    }
-                                },
-                                Err(e) => debug_log(&format!("render_once: Failed to get device from resource: {:?}", e)),
+                            if let Ok(device) = res.GetDevice() {
+                                if let Ok(ctx) = device.GetImmediateContext() {
+                                    self.d3d_device = Some(device);
+                                    self.d3d_context = Some(ctx);
+                                }
                             }
                         }
-                        
-                        if self.d3d_context.is_none() {
-                            debug_log("render_once: No D3D context available, can't render");
-                            return; // can't render without a context
-                        }
-                        
-                        let _ctx = self.d3d_context.as_ref().unwrap();
-                        let (w, h) = (width.max(1), height.max(1));
-
-                        // Render HTML scene with Vello to its intermediate GPU texture
-                        // Set swapchain into D2D renderer (only once)
-                        if self.d3d_device.is_some() && self.swapchain.is_some() {
-                            // Already set
-                        }
+                        if self.d3d_context.is_none() { debug_log("render_once: No D3D context available"); return; }
+                        let (w,h) = (width.max(1), height.max(1));
                         if self.content_loaded {
-                            // Render via D2D backend directly into the backbuffer
+                            want_disable_test_pattern = true;
                             self.renderer.render(|scene| paint_scene(scene, &self.doc, scale, w, h));
                             debug_log(&format!("render_once: D2D command_count={} ({}x{})", self.renderer.last_command_count(), w, h));
-                        } else {
-                            // Placeholder: empty scene -> debug background still drawn by backend playback
-                            self.renderer.render(|_scene| { /* empty */ });
-                            debug_log("render_once: placeholder frame rendered (no content)");
+                        } else if !self.placeholder_drawn {
+                            want_enable_test_pattern = true;
+                            self.renderer.render(|_scene| { /* placeholder test pattern */ });
+                            self.placeholder_drawn = true;
+                            debug_log("render_once: placeholder frame rendered (no content, test pattern)");
                         }
                     },
                     Err(e) => debug_log(&format!("render_once: Failed to get back buffer: {:?}", e)),
                 }
-                
-                // Present the swapchain
-                let hr = sc.Present(1, DXGI_PRESENT(0));
-                if hr.is_ok() { debug_log("render_once: presented"); }
-                else { debug_log(&format!("render_once: Failed to present swapchain: {:?}", hr)); }
-            }
-            // best-effort consume only if real content; placeholder can be redrawn later when content arrives
-            if self.content_loaded { self.needs_render = false; }
-            return;
-        } else {
-            debug_log("render_once: No swapchain found, trying fallback renderer");
-        }
-
-        // Fallback to anyrender/vello window path if active (when HWND path is used)
-    if self.content_loaded {
-        self.renderer.render(|scene| paint_scene(scene, &self.doc, scale, width, height));
-        debug_log(&format!("render_once: D2D command_count={} (fallback path)", self.renderer.last_command_count()));
-        self.needs_render = false;
-    } else {
-        self.renderer.render(|_scene| { /* empty placeholder */ });
-        debug_log("render_once: placeholder frame rendered (fallback path, no content)");
+                let sync_interval = if (!self.content_loaded && self.placeholder_drawn) || (self.content_loaded && self.placeholder_drawn) { 0 } else { 1 };
+                let hr = sc.Present(sync_interval, DXGI_PRESENT(0));
+                if hr.is_ok() { debug_log("render_once: presented"); } else { debug_log(&format!("render_once: Failed to present swapchain: {:?}", hr)); }
     }
+    if want_enable_test_pattern { if let Some(r) = self.renderer_mut() { r.set_test_pattern(true); } }
+    if want_disable_test_pattern { if let Some(r) = self.renderer_mut() { r.set_test_pattern(false); } }
+    if self.content_loaded { self.needs_render = false; }
+    return;
+    }
+
+        // Fallback path (should not normally trigger in WinUI panel scenario)
+        if self.content_loaded {
+            self.renderer.render(|scene| paint_scene(scene, &self.doc, scale, width, height));
+            debug_log(&format!("render_once: D2D command_count={} (fallback path)", self.renderer.last_command_count()));
+            self.needs_render = false;
+        } else if !self.placeholder_drawn {
+            self.renderer.render(|_scene| { /* placeholder fallback */ });
+            self.placeholder_drawn = true;
+            debug_log("render_once: placeholder frame rendered (fallback path, no content)");
+        }
     }
 
     pub fn load_html(&mut self, html: &str) {

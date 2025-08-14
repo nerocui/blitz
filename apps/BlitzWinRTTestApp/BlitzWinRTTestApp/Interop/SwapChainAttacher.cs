@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
 using System.Reflection;
+// Using the WinRT projection root namespace (types resolved via CsWinRT projection)
 using BlitzWinUI;
 using Microsoft.UI.Xaml.Controls;
 using WinRT; // Add WinRT interop
@@ -9,10 +10,12 @@ using WinRT; // Add WinRT interop
 namespace BlitzWinRTTestApp.Interop
 {
     // Implements BlitzWinUI.ISwapChainAttacher so Rust can hand us a swapchain pointer.
-    public sealed class SwapChainAttacher : ISwapChainAttacher
+    public sealed class SwapChainAttacher : BlitzWinUI.ISwapChainAttacher
     {
         private readonly SwapChainPanel _panel;
         private bool _isAttached = false;
+    private ulong _pendingSwapchainPtr = 0;
+    private bool _loadedHandlerAttached = false;
 
         public SwapChainAttacher(SwapChainPanel panel)
         {
@@ -21,18 +24,16 @@ namespace BlitzWinRTTestApp.Interop
             
             // Ensure the panel stays in the visual tree
             _panel.Unloaded += OnPanelUnloaded;
-            
-            // Check interface implementation
-            var interfaces = GetType().GetInterfaces();
-            Debug.WriteLine($"SwapChainAttacher implements {interfaces.Length} interfaces:");
-            foreach (var iface in interfaces)
+            // Defer attach until Loaded if not yet loaded
+            if (!_panel.IsLoaded)
             {
-                Debug.WriteLine($"  - {iface.FullName}");
+                Debug.WriteLine("SwapChainAttacher: Panel not yet loaded; will defer swapchain attachment until Loaded event");
+                _panel.Loaded += OnPanelLoaded;
+                _loadedHandlerAttached = true;
             }
             
-            // Verify ISwapChainAttacher is correctly implemented
-            var isAttacher = this is ISwapChainAttacher;
-            Debug.WriteLine($"Is ISwapChainAttacher: {isAttacher}");
+            // Basic projection check
+            Debug.WriteLine($"Projection type check (ISwapChainAttacher) = { (this is BlitzWinUI.ISwapChainAttacher) }");
         }
         
         private void OnPanelUnloaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
@@ -52,6 +53,7 @@ namespace BlitzWinRTTestApp.Interop
         public void AttachSwapChain(ulong swapchainPtr)
         {
             Debug.WriteLine($"AttachSwapChain: Called with swapchainPtr 0x{swapchainPtr:X}");
+            Debug.WriteLine($"Panel state at AttachSwapChain: IsLoaded={_panel.IsLoaded} ActualSize={_panel.ActualWidth}x{_panel.ActualHeight} Visibility={_panel.Visibility}");
             
             // Don't try to actually attach test values
             if (swapchainPtr == 0xFEEDFACECAFEBEEF)
@@ -72,19 +74,49 @@ namespace BlitzWinRTTestApp.Interop
                 // Consider detaching existing swapchain if needed
             }
 
+            // If panel not yet loaded, defer actual native SetSwapChain until Loaded
+            if (!_panel.IsLoaded)
+            {
+                Debug.WriteLine("AttachSwapChain: Panel not loaded; deferring actual native SetSwapChain");
+                _pendingSwapchainPtr = swapchainPtr;
+                if (!_loadedHandlerAttached)
+                {
+                    _panel.Loaded += OnPanelLoaded;
+                    _loadedHandlerAttached = true;
+                }
+                return;
+            }
+
+            TryAttachNow(swapchainPtr);
+        }
+
+        private void OnPanelLoaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+        {
+            Debug.WriteLine("SwapChainAttacher: Panel Loaded event");
+            if (_pendingSwapchainPtr != 0 && !_isAttached)
+            {
+                var ptr = _pendingSwapchainPtr;
+                _pendingSwapchainPtr = 0;
+                TryAttachNow(ptr);
+            }
+            if (_loadedHandlerAttached)
+            {
+                _panel.Loaded -= OnPanelLoaded; // one-shot
+                _loadedHandlerAttached = false;
+            }
+        }
+
+        private void TryAttachNow(ulong swapchainPtr)
+        {
             try
             {
-                // Different approaches to handle the pointer
                 TryAttachSwapChainWithMultipleApproaches(swapchainPtr);
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"AttachSwapChain: All approaches failed. Final exception: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"AttachSwapChain(TryAttachNow): All approaches failed. Final exception: {ex.GetType().Name}: {ex.Message}");
                 Debug.WriteLine($"Stack trace: {ex.StackTrace}");
-                
-                // We'll catch this exception but not re-throw it to avoid crashing the app
-                // Just log that we couldn't attach the swap chain
-                Debug.WriteLine("AttachSwapChain: Failed to attach swap chain, but continuing anyway");
+                Debug.WriteLine("AttachSwapChain(TryAttachNow): Will NOT crash app; rendering may remain blank.");
             }
         }
         
