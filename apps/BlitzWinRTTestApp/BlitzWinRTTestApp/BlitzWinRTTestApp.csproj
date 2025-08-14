@@ -11,7 +11,7 @@
     <UseWinUI>true</UseWinUI>
     <EnableMsixTooling>true</EnableMsixTooling>
     <Nullable>enable</Nullable>
-	<CsWinRTIncludes>BlitzWinUI;SwapChainAttacher</CsWinRTIncludes>
+	<CsWinRTIncludes>BlitzWinUI;Blitz</CsWinRTIncludes>
   </PropertyGroup>
 
   <ItemGroup>
@@ -56,7 +56,7 @@
 		<CsWinRTInputs Include="..\Libraries\BlitzWinUI.winmd" />
 	</ItemGroup>
 	<ItemGroup>
-		<ProjectReference Include="..\SwapChainAttacher\SwapChainAttacher.vcxproj" />
+		<ProjectReference Include="..\Blitz\Blitz.vcxproj" />
 	</ItemGroup>
   <!--
     Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution

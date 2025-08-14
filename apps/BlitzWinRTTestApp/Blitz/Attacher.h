@@ -3,7 +3,7 @@
 #include "Attacher.g.h"
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
 
-namespace winrt::SwapChainAttacher::implementation
+namespace winrt::Blitz::implementation
 {
     struct Attacher : AttacherT<Attacher>
     {
@@ -19,7 +19,7 @@ namespace winrt::SwapChainAttacher::implementation
     };
 }
 
-namespace winrt::SwapChainAttacher::factory_implementation
+namespace winrt::Blitz::factory_implementation
 {
     struct Attacher : AttacherT<Attacher, implementation::Attacher>
     {

@@ -8,8 +8,8 @@
     <CppWinRTRootNamespaceAutoMerge>true</CppWinRTRootNamespaceAutoMerge>
     <MinimalCoreWin>true</MinimalCoreWin>
     <ProjectGuid>{9df77ee1-951a-4384-bec8-3e4996dfce19}</ProjectGuid>
-    <ProjectName>SwapChainAttacher</ProjectName>
-    <RootNamespace>SwapChainAttacher</RootNamespace>
+    <ProjectName>Blitz</ProjectName>
+    <RootNamespace>Blitz</RootNamespace>
     <DefaultLanguage>en-US</DefaultLanguage>
     <MinimumVisualStudioVersion>16.0</MinimumVisualStudioVersion>
     <AppContainerApplication>false</AppContainerApplication>
@@ -86,7 +86,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateWindowsMetadata>true</GenerateWindowsMetadata>
-      <ModuleDefinitionFile>SwapChainAttacher.def</ModuleDefinitionFile>
+      <ModuleDefinitionFile>Blitz.def</ModuleDefinitionFile>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
@@ -135,7 +135,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
-    <None Include="SwapChainAttacher.def" />
+    <None Include="Blitz.def" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="readme.txt">

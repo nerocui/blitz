@@ -5,9 +5,7 @@ VisualStudioVersion = 17.14.36310.24
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlitzWinRTTestApp", "BlitzWinRTTestApp\BlitzWinRTTestApp.csproj", "{DA208168-5381-4656-A7F6-8DB4880DE56A}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlitzWinUIProjection", "Blitz.WinUIProjection\BlitzWinUIProjection.csproj", "{F3847092-643A-4BB6-9632-071D5FA32C14}"
-EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SwapChainAttacher", "SwapChainAttacher\SwapChainAttacher.vcxproj", "{9DF77EE1-951A-4384-BEC8-3E4996DFCE19}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Blitz", "Blitz\Blitz.vcxproj", "{9DF77EE1-951A-4384-BEC8-3E4996DFCE19}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -37,18 +35,6 @@ Global
 		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Release|x86.ActiveCfg = Release|x86
 		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Release|x86.Build.0 = Release|x86
 		{DA208168-5381-4656-A7F6-8DB4880DE56A}.Release|x86.Deploy.0 = Release|x86
-		{F3847092-643A-4BB6-9632-071D5FA32C14}.Debug|ARM64.ActiveCfg = Debug|Any CPU
-		{F3847092-643A-4BB6-9632-071D5FA32C14}.Debug|ARM64.Build.0 = Debug|Any CPU
-		{F3847092-643A-4BB6-9632-071D5FA32C14}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{F3847092-643A-4BB6-9632-071D5FA32C14}.Debug|x64.Build.0 = Debug|Any CPU
-		{F3847092-643A-4BB6-9632-071D5FA32C14}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{F3847092-643A-4BB6-9632-071D5FA32C14}.Debug|x86.Build.0 = Debug|Any CPU
-		{F3847092-643A-4BB6-9632-071D5FA32C14}.Release|ARM64.ActiveCfg = Release|Any CPU
-		{F3847092-643A-4BB6-9632-071D5FA32C14}.Release|ARM64.Build.0 = Release|Any CPU
-		{F3847092-643A-4BB6-9632-071D5FA32C14}.Release|x64.ActiveCfg = Release|Any CPU
-		{F3847092-643A-4BB6-9632-071D5FA32C14}.Release|x64.Build.0 = Release|Any CPU
-		{F3847092-643A-4BB6-9632-071D5FA32C14}.Release|x86.ActiveCfg = Release|Any CPU
-		{F3847092-643A-4BB6-9632-071D5FA32C14}.Release|x86.Build.0 = Release|Any CPU
 		{9DF77EE1-951A-4384-BEC8-3E4996DFCE19}.Debug|ARM64.ActiveCfg = Debug|ARM64
 		{9DF77EE1-951A-4384-BEC8-3E4996DFCE19}.Debug|ARM64.Build.0 = Debug|ARM64
 		{9DF77EE1-951A-4384-BEC8-3E4996DFCE19}.Debug|x64.ActiveCfg = Debug|x64

@@ -1,4 +1,4 @@
-namespace SwapChainAttacher
+namespace Blitz
 {
     [default_interface]
     runtimeclass BlitzView : Microsoft.UI.Xaml.Controls.Control

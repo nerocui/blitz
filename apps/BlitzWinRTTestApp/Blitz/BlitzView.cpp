@@ -10,11 +10,11 @@ using namespace winrt::Microsoft::UI::Xaml::Controls;
 using namespace winrt::Microsoft::UI::Xaml::Input;
 using namespace winrt::Microsoft::UI::Xaml::Media;
 
-namespace winrt::SwapChainAttacher::implementation
+namespace winrt::Blitz::implementation
 {
     BlitzView::BlitzView()
     {
-        DefaultStyleKey(box_value(L"SwapChainAttacher.BlitzView"));
+        DefaultStyleKey(box_value(L"Blitz.BlitzView"));
     }
 
     // Called after template applied; override to grab named parts.
@@ -37,7 +37,7 @@ namespace winrt::SwapChainAttacher::implementation
         // Create attacher using panel
         try
         {
-            m_attacher = winrt::SwapChainAttacher::Attacher(m_panel);
+            m_attacher = winrt::Blitz::Attacher(m_panel);
         }
         catch (...) { m_attacher = nullptr; }
         if (!m_attacher)
@@ -55,7 +55,7 @@ namespace winrt::SwapChainAttacher::implementation
         uint32_t height = std::max<uint32_t>(1, static_cast<uint32_t>(m_panel.ActualHeight()));
 
         // Provide basic HTML (could later be a dependency property)
-        hstring initialHtml = L"<html><body style='background:#202020;color:#EEE;font-family:sans-serif'>BlitzView host</body></html>";
+        hstring initialHtml = L"<html><body style='background:#202020;color:#EEE;font-family:sans-serif'>Blitz host</body></html>";
         try
         {
             m_host = winrt::BlitzWinUI::Host(m_attacher, width, height, scale, initialHtml);
@@ -212,11 +212,11 @@ namespace winrt::SwapChainAttacher::implementation
 }
 
 // Override single-param versions; forward to panel versions
-void winrt::SwapChainAttacher::implementation::BlitzView::OnPointerMoved(PointerRoutedEventArgs const& e)
+void winrt::Blitz::implementation::BlitzView::OnPointerMoved(PointerRoutedEventArgs const& e)
 { PanelPointerMoved(nullptr, e); }
-void winrt::SwapChainAttacher::implementation::BlitzView::OnPointerPressed(PointerRoutedEventArgs const& e)
+void winrt::Blitz::implementation::BlitzView::OnPointerPressed(PointerRoutedEventArgs const& e)
 { PanelPointerPressed(nullptr, e); }
-void winrt::SwapChainAttacher::implementation::BlitzView::OnPointerReleased(PointerRoutedEventArgs const& e)
+void winrt::Blitz::implementation::BlitzView::OnPointerReleased(PointerRoutedEventArgs const& e)
 { PanelPointerReleased(nullptr, e); }
-void winrt::SwapChainAttacher::implementation::BlitzView::OnPointerWheelChanged(PointerRoutedEventArgs const& e)
+void winrt::Blitz::implementation::BlitzView::OnPointerWheelChanged(PointerRoutedEventArgs const& e)
 { PanelPointerWheelChanged(nullptr, e); }

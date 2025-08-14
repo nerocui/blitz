@@ -6,9 +6,9 @@
 #include <winrt/Microsoft.UI.Xaml.Media.h>
 #include <winrt/Windows.System.h>
 #include <winrt/BlitzWinUI.h>
-#include <winrt/SwapChainAttacher.h> // Attacher runtimeclass (same project)
+#include <winrt/Blitz.h> // Attacher runtimeclass (same project)
 
-namespace winrt::SwapChainAttacher::implementation
+namespace winrt::Blitz::implementation
 {
     struct BlitzView : BlitzViewT<BlitzView>
     {
@@ -60,7 +60,7 @@ namespace winrt::SwapChainAttacher::implementation
     };
 }
 
-namespace winrt::SwapChainAttacher::factory_implementation
+namespace winrt::Blitz::factory_implementation
 {
     struct BlitzView : BlitzViewT<BlitzView, implementation::BlitzView>
     {

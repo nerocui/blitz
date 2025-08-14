@@ -7,7 +7,7 @@
 using namespace winrt;
 using namespace winrt::Microsoft::UI::Xaml::Controls;
 
-namespace winrt::SwapChainAttacher::implementation
+namespace winrt::Blitz::implementation
 {
 	Attacher::Attacher(winrt::Windows::Foundation::IInspectable const& panel)
 	{

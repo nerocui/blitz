@@ -1,4 +1,4 @@
-namespace SwapChainAttacher
+namespace Blitz
 {
     [default_interface]
     runtimeclass Attacher : BlitzWinUI.ISwapChainAttacher
