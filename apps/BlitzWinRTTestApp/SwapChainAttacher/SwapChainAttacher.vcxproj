@@ -15,7 +15,7 @@
     <AppContainerApplication>false</AppContainerApplication>
     <ApplicationType>Windows Store</ApplicationType>
     <ApplicationTypeRevision>10.0</ApplicationTypeRevision>
-    <WindowsTargetPlatformVersion Condition=" '$(WindowsTargetPlatformVersion)' == '' ">10.0.26100.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion Condition=" '$(WindowsTargetPlatformVersion)' == '' ">10.0.19041.0</WindowsTargetPlatformVersion>
     <WindowsTargetPlatformMinVersion>10.0.17763.0</WindowsTargetPlatformMinVersion>
     <DesktopCompatible>true</DesktopCompatible>
     <UseWinUI>true</UseWinUI>
@@ -104,12 +104,19 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="BlitzView.h">
+      <DependentUpon>BlitzView.cpp</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
     <ClInclude Include="pch.h" />
     <ClInclude Include="Attacher.h">
       <DependentUpon>Attacher.cpp</DependentUpon>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="BlitzView.cpp">
+      <SubType>Code</SubType>
+    </ClCompile>
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
@@ -120,6 +127,10 @@
     <Midl Include="Attacher.idl">
       <SubType>Code</SubType>
       <DependentUpon>Attacher.cpp</DependentUpon>
+    </Midl>
+    <Midl Include="BlitzView.idl">
+      <DependentUpon>BlitzView.cpp</DependentUpon>
+      <SubType>Code</SubType>
     </Midl>
   </ItemGroup>
   <ItemGroup>
@@ -142,8 +153,11 @@
   <ItemGroup>
     <Reference Include="BlitzWinUI">
       <IsWinMDFile>true</IsWinMDFile>
-      <HintPath>$(SolutionDir)Blitz.WinUIProjection\Libraries\BlitzWinUI.winmd</HintPath>
+      <HintPath>$(SolutionDir)Libraries\BlitzWinUI.winmd</HintPath>
     </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Page Include="Themes\Generic.xaml" />
   </ItemGroup>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>

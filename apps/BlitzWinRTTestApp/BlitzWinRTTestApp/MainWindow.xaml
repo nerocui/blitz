@@ -6,6 +6,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:local="using:BlitzWinRTTestApp"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:swapchainattacher="using:SwapChainAttacher"
     Title="BlitzWinRTTestApp"
     mc:Ignorable="d">
 
@@ -14,39 +15,6 @@
     </Window.SystemBackdrop>
 
     <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
-
-        <!--  SwapChainPanel for Blitz rendering  -->
-        <SwapChainPanel
-            x:Name="BlitzPanel"
-            Grid.Row="0"
-            HorizontalAlignment="Stretch"
-            VerticalAlignment="Stretch"
-            Loaded="BlitzPanel_Loaded"
-            SizeChanged="BlitzPanel_SizeChanged" />
-
-        <!--  Controls + Logging panel at the bottom  -->
-        <StackPanel Grid.Row="1" Margin="10" Spacing="6">
-            <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
-                <ToggleSwitch x:Name="VerboseToggle" Header="Verbose Rendering Logs" Toggled="VerboseToggle_Toggled" />
-                <Button Content="Clear Log" Click="ClearLog_Click" />
-            </StackPanel>
-            <ScrollViewer
-                x:Name="LogScrollViewer"
-                Height="150"
-                BorderBrush="{ThemeResource SystemControlForegroundBaseMediumLowBrush}"
-                BorderThickness="1">
-                <TextBox
-                    x:Name="LogTextBox"
-                    AcceptsReturn="True"
-                    FontFamily="Consolas"
-                    FontSize="12"
-                    IsReadOnly="True"
-                    TextWrapping="Wrap" />
-            </ScrollViewer>
-        </StackPanel>
+        <swapchainattacher:BlitzView />
     </Grid>
 </Window>

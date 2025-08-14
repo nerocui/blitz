@@ -1,0 +1,8 @@
+namespace SwapChainAttacher
+{
+    [default_interface]
+    runtimeclass BlitzView : Microsoft.UI.Xaml.Controls.Control
+    {
+        BlitzView();
+    }
+}

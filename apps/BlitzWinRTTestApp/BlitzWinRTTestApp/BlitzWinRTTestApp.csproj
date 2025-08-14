@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
@@ -11,6 +11,7 @@
     <UseWinUI>true</UseWinUI>
     <EnableMsixTooling>true</EnableMsixTooling>
     <Nullable>enable</Nullable>
+	<CsWinRTIncludes>BlitzWinUI;SwapChainAttacher</CsWinRTIncludes>
   </PropertyGroup>
 
   <ItemGroup>
@@ -28,8 +29,6 @@
     <EmbeddedResource Include="Assets\demo.html" LogicalName="BlitzWinRTTestApp.Assets.demo.html" />
   </ItemGroup>
 
-  <!-- Removed prior code-gen target; using EmbeddedResource + lazy loader helper instead -->
-
   <ItemGroup>
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
@@ -43,27 +42,22 @@
     <ProjectCapability Include="Msix" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.2.0" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.250606001" />
   </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\Blitz.WinUIProjection\BlitzWinUIProjection.csproj" />
-  </ItemGroup>
-
-  <!-- Copy native WinRT component artifacts to output so activation succeeds -->
-  <ItemGroup>
-    <Content Include="..\Blitz.WinUIProjection\Libraries\BlitzWinUI.dll">
-      <Link>BlitzWinUI.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </Content>
-    <Content Include="..\Blitz.WinUIProjection\Libraries\BlitzWinUI.winmd">
-      <Link>BlitzWinUI.winmd</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </Content>
-  </ItemGroup>
-
+	<ItemGroup>
+		<Content Include="..\Libraries\BlitzWinUI.dll">
+			<Link>BlitzWinUI.dll</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<!--Explicitly reference WinAppSDK winmds from TFM uap10.0-->
+		<CsWinRTInputs Include="..\Libraries\BlitzWinUI.winmd" />
+	</ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\SwapChainAttacher\SwapChainAttacher.vcxproj" />
+	</ItemGroup>
   <!--
     Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution
     Explorer "Package and Publish" context menu entry to be enabled for this project even if

@@ -10,17 +10,21 @@
     <!-- Instruct CsWinRT to generate a projection and where to find Windows metadata -->
     <CsWinRTGenerateProjection>true</CsWinRTGenerateProjection>
     <CsWinRTWindowsMetadata>10.0.19041.0</CsWinRTWindowsMetadata>
-    <CsWinRTIncludes>BlitzWinUI</CsWinRTIncludes>
+    <!-- Include both component namespaces; duplicate property entries previously caused BlitzWinUI to be dropped -->
+    <CsWinRTIncludes>SwapChainAttacher</CsWinRTIncludes>
     <!-- Add this line to ensure interfaces are projected -->
     <CsWinRTProjectionType>Merged</CsWinRTProjectionType>
+    <UseWinUI>true</UseWinUI>
   </PropertyGroup>
-
   <ItemGroup>
-  <PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.2.0" />
+    <PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.2.0" />
   </ItemGroup>
-
+    <ItemGroup>
+	    <!--Explicitly reference WinAppSDK winmds from TFM uap10.0-->
+	    <CsWinRTInputs Include="..\Libraries\BlitzWinUI.winmd" />
+    </ItemGroup>
   <ItemGroup>
-    <CsWinRTInputs Include="./Libraries/BlitzWinUI.winmd" />
+    <ProjectReference Include="..\SwapChainAttacher\SwapChainAttacher.vcxproj" />
   </ItemGroup>
 
 </Project>
