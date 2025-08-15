@@ -26,7 +26,21 @@
                     Icon="Page"
                     Tag="CardsPage" />
             </NavigationView.MenuItems>
-            <Frame x:Name="contentFrame" />
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="100" />
+                </Grid.RowDefinitions>
+                <Frame x:Name="contentFrame" Grid.Row="0" />
+                <Grid Grid.Row="1" Padding="12">
+                    <ScrollViewer>
+                        <StackPanel>
+                            <ToggleSwitch Header="Debug Overlay" IsOn="{x:Bind Settings.DebugOverlayEnabled, Mode=TwoWay}" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Grid>
+
         </NavigationView>
     </Grid>
 </Window>

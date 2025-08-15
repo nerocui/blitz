@@ -1,4 +1,6 @@
 using BlitzWinRTTestApp.View;
+using BlitzWinRTTestApp.ViewModel;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -9,8 +11,10 @@ namespace BlitzWinRTTestApp;
 /// </summary>
 public sealed partial class MainWindow : Window
 {
+    public SettingsViewModel Settings { get; set; }
     public MainWindow()
     {
+        Settings = ((App)App.Current).Services.GetService<SettingsViewModel>();
         InitializeComponent();
     }
 
