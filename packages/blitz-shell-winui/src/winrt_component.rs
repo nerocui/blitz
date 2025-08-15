@@ -117,6 +117,11 @@ impl BlitzHost {
         debug_log(&format!("SetVerboseLogging: enabled={}", enabled));
     }
 
+    pub fn set_debug_overlay(&mut self, enabled: bool) {
+        if let Some(r) = self.renderer_mut() { r.set_debug_overlay(enabled); }
+        debug_log(&format!("SetDebugOverlay: enabled={}", enabled));
+    }
+
     // SwapChainPanel interop: detect if the provided Object is an attacher callback; if so, store it and, if possible, create and attach swapchain now.
     pub fn set_panel(&mut self, panel: windows_core::Ref<'_, IInspectable>, _width: u32, _height: u32) {
         // Try casting to our attacher interface

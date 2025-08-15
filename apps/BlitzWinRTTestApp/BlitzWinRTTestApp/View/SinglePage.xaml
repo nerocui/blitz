@@ -10,6 +10,6 @@
     mc:Ignorable="d">
 
     <Grid>
-        <blitz:BlitzView HTML="{x:Bind HTML}" />
+        <blitz:BlitzView DebugOverlayEnabled="{x:Bind Settings.DebugOverlayEnabled, Mode=OneWay}" HTML="{x:Bind HTML}" />
     </Grid>
 </Page>

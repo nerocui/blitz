@@ -309,13 +309,14 @@ pub struct D2DWindowRenderer {
     last_frame_metrics: FrameTimings,
     // Diagnostic: draw colored quadrants when true and no scene commands (placeholder visibility test)
     test_pattern: bool,
+    show_debug_overlay: bool,
 }
 
 impl D2DWindowRenderer {
     pub fn new() -> Self { 
         let init_start = Instant::now();
     begin_init_window(init_start);
-    Self { swapchain: None, d3d_device: None, d2d_factory: None, d2d_device: None, d2d_ctx: None, dwrite_factory: None, dwrite_font_face: None, dwrite_text_format: None, font_face_cache: FxHashMap::default(), gradient_cache: FxHashMap::default(), image_cache: FxHashMap::default(), shadow_cache: FxHashMap::default(), shadow_cache_order: std::collections::VecDeque::new(), gaussian_blur_effect: None, scene: D2DScene::default(), width: 1, height: 1, active: false, debug_shadow_logs: 0, last_command_count: 0, backbuffer_bitmap: None, init_start, first_frame_done: false, first_frame_ms: 0.0, device_init_ms: 0.0, backbuffer_create_ms: 0.0, playback_ms: 0.0, host_init_ms: 0.0, host_dxgi_d3d_ms:0.0, host_swapchain_ms:0.0, host_panel_attach_queue_ms:0.0, host_panel_attach_exec_ms:0.0, host_panel_attach_sub_ui_add_ms:0.0, host_panel_attach_sub_set_swapchain_ms:0.0, host_first_text_init_ms:0.0, frame_start: Instant::now(), fps_accum_time: 0.0, fps_frame_count: 0, fps: 0.0, last_frame_metrics: FrameTimings::default(), test_pattern: false }
+    Self { swapchain: None, d3d_device: None, d2d_factory: None, d2d_device: None, d2d_ctx: None, dwrite_factory: None, dwrite_font_face: None, dwrite_text_format: None, font_face_cache: FxHashMap::default(), gradient_cache: FxHashMap::default(), image_cache: FxHashMap::default(), shadow_cache: FxHashMap::default(), shadow_cache_order: std::collections::VecDeque::new(), gaussian_blur_effect: None, scene: D2DScene::default(), width: 1, height: 1, active: false, debug_shadow_logs: 0, last_command_count: 0, backbuffer_bitmap: None, init_start, first_frame_done: false, first_frame_ms: 0.0, device_init_ms: 0.0, backbuffer_create_ms: 0.0, playback_ms: 0.0, host_init_ms: 0.0, host_dxgi_d3d_ms:0.0, host_swapchain_ms:0.0, host_panel_attach_queue_ms:0.0, host_panel_attach_exec_ms:0.0, host_panel_attach_sub_ui_add_ms:0.0, host_panel_attach_sub_set_swapchain_ms:0.0, host_first_text_init_ms:0.0, frame_start: Instant::now(), fps_accum_time: 0.0, fps_frame_count: 0, fps: 0.0, last_frame_metrics: FrameTimings::default(), test_pattern: false, show_debug_overlay: false }
     }
 
     pub fn restart_initial_measurement(&mut self) {
@@ -330,6 +331,7 @@ impl D2DWindowRenderer {
     pub fn last_command_count(&self) -> u32 { self.last_command_count }
 
     pub fn set_test_pattern(&mut self, on: bool) { self.test_pattern = on; }
+    pub fn set_debug_overlay(&mut self, on: bool) { self.show_debug_overlay = on; }
 
     pub fn set_swapchain(&mut self, sc: IDXGISwapChain1, width: u32, height: u32) {
         self.width = width.max(1);
@@ -612,7 +614,7 @@ impl D2DWindowRenderer {
             // If no commands, fallback bg already drawn earlier.
             // Note: SetTransform removed - not available in this windows-rs version
             // Draw overlay before EndDraw so it is visible
-            self.draw_debug_overlay(&ctx);
+            if self.show_debug_overlay { self.draw_debug_overlay(&ctx); }
             let end_res = ctx.EndDraw(None, None);
             if let Err(e) = end_res { debug_log_d2d(&format!("EndDraw error {:?}", e)); } else { vlog!("EndDraw ok"); }
         }

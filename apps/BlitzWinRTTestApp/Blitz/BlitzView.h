@@ -25,6 +25,8 @@ namespace winrt::Blitz::implementation
         void OnPointerWheelChanged(winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&);
         winrt::hstring HTML() const; // Property getter
         void HTML(winrt::hstring const& value); // Property setter
+    bool DebugOverlayEnabled() const;
+    void DebugOverlayEnabled(bool value);
 
     private:
         // Lifecycle
@@ -51,6 +53,7 @@ namespace winrt::Blitz::implementation
         winrt::BlitzWinUI::Host m_host{ nullptr };
         bool m_renderLoopAttached{ false };
         winrt::hstring m_html; // backing for HTML property
+    bool m_debugOverlayEnabled{ false }; // backing for DebugOverlayEnabled property
 
         // Event tokens for cleanup (not strictly necessary yet)
         winrt::event_token m_loadedToken{};

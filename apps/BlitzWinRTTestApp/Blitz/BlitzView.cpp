@@ -54,11 +54,13 @@ namespace winrt::Blitz::implementation
         uint32_t width = std::max<uint32_t>(1, static_cast<uint32_t>(m_panel.ActualWidth()));
         uint32_t height = std::max<uint32_t>(1, static_cast<uint32_t>(m_panel.ActualHeight()));
 
-    // Pick provided HTML (if any) or fallback default snippet
-    hstring initialHtml = m_html.empty() ? hstring(L"<html><body style='background:#202020;color:#EEE;font-family:sans-serif'>Blitz host</body></html>") : m_html;
+        // Pick provided HTML (if any) or fallback default snippet
+        hstring initialHtml = m_html.empty() ? hstring(L"<html><body style='background:#202020;color:#EEE;font-family:sans-serif'>Blitz host</body></html>") : m_html;
         try
         {
             m_host = winrt::BlitzWinUI::Host(m_attacher, width, height, scale, initialHtml);
+            // Apply current overlay setting (default false unless changed before init)
+            try { m_host.SetDebugOverlay(m_debugOverlayEnabled); } catch (...) {}
         }
         catch (...)
         {
@@ -237,6 +239,21 @@ namespace winrt::Blitz::implementation
     {
         m_html = value;
         // If host already created we could later add a live update call (not implemented yet).
+    }
+
+    bool BlitzView::DebugOverlayEnabled() const
+    {
+        return m_debugOverlayEnabled;
+    }
+
+    void BlitzView::DebugOverlayEnabled(bool value)
+    {
+        if (m_debugOverlayEnabled == value) return;
+        m_debugOverlayEnabled = value;
+        if (m_host)
+        {
+            try { m_host.SetDebugOverlay(value); } catch (...) {}
+        }
     }
 }
 

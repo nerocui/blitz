@@ -67,6 +67,16 @@ impl Host {
             .ok()
         }
     }
+    pub fn SetDebugOverlay(&self, enabled: bool) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).SetDebugOverlay)(
+                windows_core::Interface::as_raw(this),
+                enabled,
+            )
+            .ok()
+        }
+    }
     pub fn TestAttacherConnection(&self) -> windows_core::Result<bool> {
         let this = self;
         unsafe {
@@ -206,7 +216,7 @@ impl windows_core::RuntimeName for Host {
 }
 unsafe impl Send for Host {}
 unsafe impl Sync for Host {}
-windows_core::imp::define_interface!(IHost, IHost_Vtbl, 0x6a30485f_0706_5977_a21b_8a214c0dd551);
+windows_core::imp::define_interface!(IHost, IHost_Vtbl, 0xd3ea9112_165b_59d5_9399_839f7a3e2bd7);
 impl windows_core::RuntimeType for IHost {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -223,6 +233,7 @@ pub trait IHost_Impl: windows_core::IUnknownImpl {
     fn RenderOnce(&self) -> windows_core::Result<()>;
     fn LoadHtml(&self, html: &windows_core::HSTRING) -> windows_core::Result<()>;
     fn SetVerboseLogging(&self, enabled: bool) -> windows_core::Result<()>;
+    fn SetDebugOverlay(&self, enabled: bool) -> windows_core::Result<()>;
     fn TestAttacherConnection(&self) -> windows_core::Result<bool>;
     fn WheelScroll(&self, dx: f64, dy: f64) -> windows_core::Result<()>;
     fn PointerMove(&self, x: f32, y: f32, buttons: u32, modifiers: u32)
@@ -296,6 +307,16 @@ impl IHost_Vtbl {
                 let this: &Identity =
                     &*((this as *const *const ()).offset(OFFSET) as *const Identity);
                 IHost_Impl::SetVerboseLogging(this, enabled).into()
+            }
+        }
+        unsafe extern "system" fn SetDebugOverlay<Identity: IHost_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            enabled: bool,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                IHost_Impl::SetDebugOverlay(this, enabled).into()
             }
         }
         unsafe extern "system" fn TestAttacherConnection<
@@ -390,6 +411,7 @@ impl IHost_Vtbl {
             RenderOnce: RenderOnce::<Identity, OFFSET>,
             LoadHtml: LoadHtml::<Identity, OFFSET>,
             SetVerboseLogging: SetVerboseLogging::<Identity, OFFSET>,
+            SetDebugOverlay: SetDebugOverlay::<Identity, OFFSET>,
             TestAttacherConnection: TestAttacherConnection::<Identity, OFFSET>,
             WheelScroll: WheelScroll::<Identity, OFFSET>,
             PointerMove: PointerMove::<Identity, OFFSET>,
@@ -418,6 +440,8 @@ pub struct IHost_Vtbl {
         *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
     pub SetVerboseLogging:
+        unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+    pub SetDebugOverlay:
         unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     pub TestAttacherConnection:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,

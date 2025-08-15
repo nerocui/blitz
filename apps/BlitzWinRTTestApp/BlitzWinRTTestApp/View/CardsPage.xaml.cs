@@ -1,9 +1,13 @@
-﻿using Microsoft.UI.Xaml.Controls;
+﻿using BlitzWinRTTestApp.ViewModel;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.UI.Xaml.Controls;
 
 namespace BlitzWinRTTestApp.View;
 
 public sealed partial class CardsPage : Page
 {
+    public SettingsViewModel Settings { get; set; }
+
     public string HTML = EmbeddedContent.DemoHtml;
     public string Card1HTML { get; } = "<html><body style='margin:0;font-family:Segoe UI,system-ui;background:linear-gradient(135deg,#2d2f33,#1f2225);color:#fff;display:flex;flex-direction:column;justify-content:center;align-items:center;height:100%;'><h2 style='margin:4px 0;font-size:20px;'>System Status</h2><div style='font-size:12px;opacity:.75'>All services nominal</div></body></html>";
     public string Card2HTML { get; } = "<html><body style='margin:0;font-family:Segoe UI;background:#1E1B2B;color:#E0DFF7;display:flex;flex-direction:column;padding:12px;'><div style='font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.6;'>Build</div><div style='font-size:42px;font-weight:600;line-height:1;'>✅</div><div style='margin-top:auto;font-size:12px;opacity:.7;'>Last: &lt;2 min ago</div></body></html>";
@@ -20,6 +24,7 @@ public sealed partial class CardsPage : Page
         "</body></html>";
     public CardsPage()
     {
+        Settings = ((App)App.Current).Services.GetService<SettingsViewModel>();
         InitializeComponent();
     }
 }

@@ -34,6 +34,7 @@
                         BorderBrush="#33FFFFFF"
                         BorderThickness="1"
                         CornerRadius="12"
+                        DebugOverlayEnabled="{x:Bind Settings.DebugOverlayEnabled, Mode=OneWay}"
                         HTML="{x:Bind Card1HTML}" />
                     <blitz:BlitzView
                         Width="300"
@@ -41,6 +42,7 @@
                         BorderBrush="#33FFFFFF"
                         BorderThickness="1"
                         CornerRadius="12"
+                        DebugOverlayEnabled="{x:Bind Settings.DebugOverlayEnabled, Mode=OneWay}"
                         HTML="{x:Bind Card2HTML}" />
                     <blitz:BlitzView
                         Width="300"
@@ -48,6 +50,7 @@
                         BorderBrush="#33FFFFFF"
                         BorderThickness="1"
                         CornerRadius="12"
+                        DebugOverlayEnabled="{x:Bind Settings.DebugOverlayEnabled, Mode=OneWay}"
                         HTML="{x:Bind Card3HTML}" />
                 </StackPanel>
 
@@ -59,6 +62,7 @@
                         BorderBrush="#4488CCFF"
                         BorderThickness="2"
                         CornerRadius="16"
+                        DebugOverlayEnabled="{x:Bind Settings.DebugOverlayEnabled, Mode=OneWay}"
                         HTML="{x:Bind Card4HTML}" />
                     <blitz:BlitzView
                         Width="300"
@@ -66,6 +70,7 @@
                         BorderBrush="#44FFAA55"
                         BorderThickness="2"
                         CornerRadius="16"
+                        DebugOverlayEnabled="{x:Bind Settings.DebugOverlayEnabled, Mode=OneWay}"
                         HTML="{x:Bind Card5HTML}" />
                     <blitz:BlitzView
                         Width="300"
@@ -73,6 +78,7 @@
                         BorderBrush="#44FF5555"
                         BorderThickness="2"
                         CornerRadius="16"
+                        DebugOverlayEnabled="{x:Bind Settings.DebugOverlayEnabled, Mode=OneWay}"
                         HTML="{x:Bind Card6HTML}" />
                 </StackPanel>
 
@@ -83,6 +89,7 @@
                     BorderBrush="#55FFFFFF"
                     BorderThickness="2"
                     CornerRadius="20"
+                    DebugOverlayEnabled="{x:Bind Settings.DebugOverlayEnabled, Mode=OneWay}"
                     HTML="{x:Bind FeatureCardHTML}" />
             </StackPanel>
         </ScrollViewer>

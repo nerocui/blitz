@@ -180,6 +180,14 @@ impl IHost_Impl for HostRuntime_Impl {
         Ok(())
     }
 
+    fn SetDebugOverlay(&self, enabled: bool) -> windows_core::Result<()> {
+        let imp = self.get_impl();
+        if let Some(inner) = imp.inner.lock().unwrap().as_mut() {
+            inner.set_debug_overlay(enabled);
+        }
+        Ok(())
+    }
+
     fn TestAttacherConnection(&self) -> windows_core::Result<bool> {
         let imp = self.get_impl();
         if let Some(inner) = imp.inner.lock().unwrap().as_ref() {
