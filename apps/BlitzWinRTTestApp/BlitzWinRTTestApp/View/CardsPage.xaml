@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="BlitzWinRTTestApp.View.CardsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:blitz="using:Blitz"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:BlitzWinRTTestApp.View"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid>
+        <ScrollViewer
+            Padding="24"
+            HorizontalScrollBarVisibility="Disabled"
+            VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="24">
+                <TextBlock
+                    Margin="0,0,0,8"
+                    FontSize="28"
+                    FontWeight="SemiBold"
+                    Text="Blitz HTML Cards" />
+                <TextBlock
+                    Margin="0,0,0,16"
+                    Opacity="0.75"
+                    Text="Each card below is a BlitzView rendering isolated HTML/CSS content."
+                    TextWrapping="Wrap" />
+
+                <!--  Card Row 1  -->
+                <StackPanel Orientation="Horizontal" Spacing="24">
+                    <blitz:BlitzView
+                        Width="300"
+                        Height="200"
+                        BorderBrush="#33FFFFFF"
+                        BorderThickness="1"
+                        CornerRadius="12"
+                        HTML="{x:Bind Card1HTML}" />
+                    <blitz:BlitzView
+                        Width="300"
+                        Height="200"
+                        BorderBrush="#33FFFFFF"
+                        BorderThickness="1"
+                        CornerRadius="12"
+                        HTML="{x:Bind Card2HTML}" />
+                    <blitz:BlitzView
+                        Width="300"
+                        Height="200"
+                        BorderBrush="#33FFFFFF"
+                        BorderThickness="1"
+                        CornerRadius="12"
+                        HTML="{x:Bind Card3HTML}" />
+                </StackPanel>
+
+                <!--  Card Row 2  -->
+                <StackPanel Orientation="Horizontal" Spacing="24">
+                    <blitz:BlitzView
+                        Width="300"
+                        Height="240"
+                        BorderBrush="#4488CCFF"
+                        BorderThickness="2"
+                        CornerRadius="16"
+                        HTML="{x:Bind Card4HTML}" />
+                    <blitz:BlitzView
+                        Width="300"
+                        Height="240"
+                        BorderBrush="#44FFAA55"
+                        BorderThickness="2"
+                        CornerRadius="16"
+                        HTML="{x:Bind Card5HTML}" />
+                    <blitz:BlitzView
+                        Width="300"
+                        Height="240"
+                        BorderBrush="#44FF5555"
+                        BorderThickness="2"
+                        CornerRadius="16"
+                        HTML="{x:Bind Card6HTML}" />
+                </StackPanel>
+
+                <!--  Wider feature card  -->
+                <blitz:BlitzView
+                    Width="940"
+                    Height="260"
+                    BorderBrush="#55FFFFFF"
+                    BorderThickness="2"
+                    CornerRadius="20"
+                    HTML="{x:Bind FeatureCardHTML}" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>
