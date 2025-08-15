@@ -7,6 +7,7 @@ namespace BlitzWinRTTestApp;
 /// </summary>
 public sealed partial class MainWindow : Window
 {
+    public string HTML = EmbeddedContent.DemoHtml;
     public MainWindow()
     {
         InitializeComponent();

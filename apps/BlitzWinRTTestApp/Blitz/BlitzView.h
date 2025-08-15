@@ -23,6 +23,8 @@ namespace winrt::Blitz::implementation
         void OnPointerPressed(winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&);
         void OnPointerReleased(winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&);
         void OnPointerWheelChanged(winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&);
+        winrt::hstring HTML() const; // Property getter
+        void HTML(winrt::hstring const& value); // Property setter
 
     private:
         // Lifecycle
@@ -32,12 +34,12 @@ namespace winrt::Blitz::implementation
 
         // Event handlers
         void OnPanelLoaded(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
-    void OnPanelSizeChanged(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::SizeChangedEventArgs const&);
-    // Panel subscription handlers (internal wiring)
-    void PanelPointerMoved(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&);
-    void PanelPointerPressed(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&);
-    void PanelPointerReleased(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&);
-    void PanelPointerWheelChanged(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&);
+        void OnPanelSizeChanged(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::SizeChangedEventArgs const&);
+        // Panel subscription handlers (internal wiring)
+        void PanelPointerMoved(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&);
+        void PanelPointerPressed(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&);
+        void PanelPointerReleased(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&);
+        void PanelPointerWheelChanged(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&);
         void OnRendering(winrt::Windows::Foundation::IInspectable const&, winrt::Windows::Foundation::IInspectable const&);
 
         // Helpers
@@ -48,6 +50,7 @@ namespace winrt::Blitz::implementation
         Attacher m_attacher{ nullptr };
         winrt::BlitzWinUI::Host m_host{ nullptr };
         bool m_renderLoopAttached{ false };
+        winrt::hstring m_html; // backing for HTML property
 
         // Event tokens for cleanup (not strictly necessary yet)
         winrt::event_token m_loadedToken{};

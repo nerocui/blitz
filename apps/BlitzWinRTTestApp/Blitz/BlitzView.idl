@@ -4,5 +4,6 @@ namespace Blitz
     runtimeclass BlitzView : Microsoft.UI.Xaml.Controls.Control
     {
         BlitzView();
+        String HTML; // Initial HTML content
     }
 }

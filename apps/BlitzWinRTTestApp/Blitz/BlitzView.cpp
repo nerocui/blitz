@@ -54,8 +54,8 @@ namespace winrt::Blitz::implementation
         uint32_t width = std::max<uint32_t>(1, static_cast<uint32_t>(m_panel.ActualWidth()));
         uint32_t height = std::max<uint32_t>(1, static_cast<uint32_t>(m_panel.ActualHeight()));
 
-        // Provide basic HTML (could later be a dependency property)
-        hstring initialHtml = L"<html><body style='background:#202020;color:#EEE;font-family:sans-serif'>Blitz host</body></html>";
+    // Pick provided HTML (if any) or fallback default snippet
+    hstring initialHtml = m_html.empty() ? hstring(L"<html><body style='background:#202020;color:#EEE;font-family:sans-serif'>Blitz host</body></html>") : m_html;
         try
         {
             m_host = winrt::BlitzWinUI::Host(m_attacher, width, height, scale, initialHtml);
@@ -209,14 +209,34 @@ namespace winrt::Blitz::implementation
             m_pointerWheelChangedToken = m_panel.PointerWheelChanged({ this, &BlitzView::PanelPointerWheelChanged });
         }
     }
+
+    // Override single-param versions; forward to panel versions
+    void BlitzView::OnPointerMoved(PointerRoutedEventArgs const& e)
+    {
+        PanelPointerMoved(nullptr, e);
+    }
+    void BlitzView::OnPointerPressed(PointerRoutedEventArgs const& e)
+    {
+        PanelPointerPressed(nullptr, e);
+    }
+    void BlitzView::OnPointerReleased(PointerRoutedEventArgs const& e)
+    {
+        PanelPointerReleased(nullptr, e);
+    }
+    void BlitzView::OnPointerWheelChanged(PointerRoutedEventArgs const& e)
+    {
+        PanelPointerWheelChanged(nullptr, e);
+    }
+
+    // HTML property implementation
+    winrt::hstring BlitzView::HTML() const
+    {
+        return m_html;
+    }
+    void BlitzView::HTML(winrt::hstring const& value)
+    {
+        m_html = value;
+        // If host already created we could later add a live update call (not implemented yet).
+    }
 }
 
-// Override single-param versions; forward to panel versions
-void winrt::Blitz::implementation::BlitzView::OnPointerMoved(PointerRoutedEventArgs const& e)
-{ PanelPointerMoved(nullptr, e); }
-void winrt::Blitz::implementation::BlitzView::OnPointerPressed(PointerRoutedEventArgs const& e)
-{ PanelPointerPressed(nullptr, e); }
-void winrt::Blitz::implementation::BlitzView::OnPointerReleased(PointerRoutedEventArgs const& e)
-{ PanelPointerReleased(nullptr, e); }
-void winrt::Blitz::implementation::BlitzView::OnPointerWheelChanged(PointerRoutedEventArgs const& e)
-{ PanelPointerWheelChanged(nullptr, e); }

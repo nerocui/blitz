@@ -15,6 +15,6 @@
     </Window.SystemBackdrop>
 
     <Grid>
-        <blitz:BlitzView />
+        <blitz:BlitzView HTML="{x:Bind HTML}" />
     </Grid>
 </Window>
