@@ -6,7 +6,8 @@
   <PropertyGroup Label="Globals">
     <CppWinRTOptimized>true</CppWinRTOptimized>
     <CppWinRTRootNamespaceAutoMerge>true</CppWinRTRootNamespaceAutoMerge>
-    <MinimalCoreWin>true</MinimalCoreWin>
+  <!-- Removed MinimalCoreWin to allow broader WinRT API surface (needed for Windows.Web.Http projections) -->
+  <MinimalCoreWin>false</MinimalCoreWin>
     <ProjectGuid>{9df77ee1-951a-4384-bec8-3e4996dfce19}</ProjectGuid>
     <ProjectName>Blitz</ProjectName>
     <RootNamespace>Blitz</RootNamespace>
@@ -112,6 +113,9 @@
     <ClInclude Include="Attacher.h">
       <DependentUpon>Attacher.cpp</DependentUpon>
     </ClInclude>
+    <ClInclude Include="NetworkFetcher.h">
+      <DependentUpon>NetworkFetcher.cpp</DependentUpon>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="BlitzView.cpp">
@@ -122,6 +126,7 @@
     </ClCompile>
     <ClCompile Include="Attacher.cpp" />
     <ClCompile Include="$(GeneratedFilesDir)module.g.cpp" />
+    <ClCompile Include="NetworkFetcher.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Midl Include="Attacher.idl">
@@ -131,6 +136,10 @@
     <Midl Include="BlitzView.idl">
       <DependentUpon>BlitzView.cpp</DependentUpon>
       <SubType>Code</SubType>
+    </Midl>
+    <Midl Include="NetworkFetcher.idl">
+      <SubType>Code</SubType>
+      <DependentUpon>NetworkFetcher.cpp</DependentUpon>
     </Midl>
   </ItemGroup>
   <ItemGroup>

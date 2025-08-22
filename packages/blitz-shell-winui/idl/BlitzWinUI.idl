@@ -9,6 +9,17 @@ namespace BlitzWinUI
         Boolean TestAttacherConnection();
     }
 
+    // Network fetch interface implemented by the host side (C++ WinRT). The Rust host will invoke
+    // Fetch with a unique requestId/docId/url/method. The implementor performs the network request
+    // asynchronously and, upon completion (success or failure), calls Host.CompleteFetch to deliver
+    // the bytes (or an error). Headers & body are intentionally omitted in this first revision to
+    // keep the ABI surface minimal; they can be added in a future breaking revision once required.
+    [uuid(5b9cb9f2-9f3f-4f1a-9c2a-cd1d7e6d9b11)]
+    interface INetworkFetcher
+    {
+        void Fetch(UInt32 requestId, UInt32 docId, String url, String method);
+    }
+
     /// ABI exposed to C#
     runtimeclass Host
     {
@@ -22,6 +33,12 @@ namespace BlitzWinUI
         void LoadHtml(String html);
     void SetVerboseLogging(Boolean enabled);
     void SetDebugOverlay(Boolean enabled);
+    // Provide a network fetcher implementation (object must implement BlitzWinUI.INetworkFetcher)
+    void SetNetworkFetcher(Object fetcher);
+    // Completion callback invoked by the host-side network fetcher. "data" only valid when success=true.
+    void CompleteFetch(UInt32 requestId, UInt32 docId, Boolean success, UInt8[] data, String errorMessage);
+    // Initiate a simple GET request for a document (internal bridging convenience for Rust NetProvider)
+    void RequestUrl(UInt32 docId, String url, UInt32 requestId);
         Boolean TestAttacherConnection(); // Add test method
     void WheelScroll(Double dx, Double dy); // mouse wheel / trackpad scroll delta
     void PointerMove(Single x, Single y, UInt32 buttons, UInt32 modifiers);

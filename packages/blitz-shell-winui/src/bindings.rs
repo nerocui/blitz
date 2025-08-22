@@ -77,6 +77,58 @@ impl Host {
             .ok()
         }
     }
+    pub fn SetNetworkFetcher<P0>(&self, fetcher: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<windows_core::IInspectable>,
+    {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).SetNetworkFetcher)(
+                windows_core::Interface::as_raw(this),
+                fetcher.param().abi(),
+            )
+            .ok()
+        }
+    }
+    pub fn CompleteFetch(
+        &self,
+        requestid: u32,
+        docid: u32,
+        success: bool,
+        data: &[u8],
+        errormessage: &windows_core::HSTRING,
+    ) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).CompleteFetch)(
+                windows_core::Interface::as_raw(this),
+                requestid,
+                docid,
+                success,
+                data.len().try_into().unwrap(),
+                data.as_ptr(),
+                core::mem::transmute_copy(errormessage),
+            )
+            .ok()
+        }
+    }
+    pub fn RequestUrl(
+        &self,
+        docid: u32,
+        url: &windows_core::HSTRING,
+        requestid: u32,
+    ) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).RequestUrl)(
+                windows_core::Interface::as_raw(this),
+                docid,
+                core::mem::transmute_copy(url),
+                requestid,
+            )
+            .ok()
+        }
+    }
     pub fn TestAttacherConnection(&self) -> windows_core::Result<bool> {
         let this = self;
         unsafe {
@@ -216,7 +268,7 @@ impl windows_core::RuntimeName for Host {
 }
 unsafe impl Send for Host {}
 unsafe impl Sync for Host {}
-windows_core::imp::define_interface!(IHost, IHost_Vtbl, 0xd3ea9112_165b_59d5_9399_839f7a3e2bd7);
+windows_core::imp::define_interface!(IHost, IHost_Vtbl, 0xaa6fb944_a0b6_5aa2_b960_b8fbdb2394c9);
 impl windows_core::RuntimeType for IHost {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::for_interface::<Self>();
@@ -234,6 +286,24 @@ pub trait IHost_Impl: windows_core::IUnknownImpl {
     fn LoadHtml(&self, html: &windows_core::HSTRING) -> windows_core::Result<()>;
     fn SetVerboseLogging(&self, enabled: bool) -> windows_core::Result<()>;
     fn SetDebugOverlay(&self, enabled: bool) -> windows_core::Result<()>;
+    fn SetNetworkFetcher(
+        &self,
+        fetcher: windows_core::Ref<'_, windows_core::IInspectable>,
+    ) -> windows_core::Result<()>;
+    fn CompleteFetch(
+        &self,
+        requestId: u32,
+        docId: u32,
+        success: bool,
+        data: &[u8],
+        errorMessage: &windows_core::HSTRING,
+    ) -> windows_core::Result<()>;
+    fn RequestUrl(
+        &self,
+        docId: u32,
+        url: &windows_core::HSTRING,
+        requestId: u32,
+    ) -> windows_core::Result<()>;
     fn TestAttacherConnection(&self) -> windows_core::Result<bool>;
     fn WheelScroll(&self, dx: f64, dy: f64) -> windows_core::Result<()>;
     fn PointerMove(&self, x: f32, y: f32, buttons: u32, modifiers: u32)
@@ -317,6 +387,54 @@ impl IHost_Vtbl {
                 let this: &Identity =
                     &*((this as *const *const ()).offset(OFFSET) as *const Identity);
                 IHost_Impl::SetDebugOverlay(this, enabled).into()
+            }
+        }
+        unsafe extern "system" fn SetNetworkFetcher<Identity: IHost_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            fetcher: *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                IHost_Impl::SetNetworkFetcher(this, core::mem::transmute_copy(&fetcher)).into()
+            }
+        }
+        unsafe extern "system" fn CompleteFetch<Identity: IHost_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            requestid: u32,
+            docid: u32,
+            success: bool,
+            data_array_size: u32,
+            data: *const u8,
+            errormessage: *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                IHost_Impl::CompleteFetch(
+                    this,
+                    requestid,
+                    docid,
+                    success,
+                    core::slice::from_raw_parts(
+                        core::mem::transmute_copy(&data),
+                        data_array_size as usize,
+                    ),
+                    core::mem::transmute(&errormessage),
+                )
+                .into()
+            }
+        }
+        unsafe extern "system" fn RequestUrl<Identity: IHost_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            docid: u32,
+            url: *mut core::ffi::c_void,
+            requestid: u32,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                IHost_Impl::RequestUrl(this, docid, core::mem::transmute(&url), requestid).into()
             }
         }
         unsafe extern "system" fn TestAttacherConnection<
@@ -412,6 +530,9 @@ impl IHost_Vtbl {
             LoadHtml: LoadHtml::<Identity, OFFSET>,
             SetVerboseLogging: SetVerboseLogging::<Identity, OFFSET>,
             SetDebugOverlay: SetDebugOverlay::<Identity, OFFSET>,
+            SetNetworkFetcher: SetNetworkFetcher::<Identity, OFFSET>,
+            CompleteFetch: CompleteFetch::<Identity, OFFSET>,
+            RequestUrl: RequestUrl::<Identity, OFFSET>,
             TestAttacherConnection: TestAttacherConnection::<Identity, OFFSET>,
             WheelScroll: WheelScroll::<Identity, OFFSET>,
             PointerMove: PointerMove::<Identity, OFFSET>,
@@ -443,6 +564,25 @@ pub struct IHost_Vtbl {
         unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     pub SetDebugOverlay:
         unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+    pub SetNetworkFetcher: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    pub CompleteFetch: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        u32,
+        u32,
+        bool,
+        u32,
+        *const u8,
+        *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    pub RequestUrl: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        u32,
+        *mut core::ffi::c_void,
+        u32,
+    ) -> windows_core::HRESULT,
     pub TestAttacherConnection:
         unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
     pub WheelScroll:
@@ -550,6 +690,96 @@ pub struct IHostFactory_Vtbl {
         f32,
         *mut core::ffi::c_void,
         *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    INetworkFetcher,
+    INetworkFetcher_Vtbl,
+    0x5b9cb9f2_9f3f_4f1a_9c2a_cd1d7e6d9b11
+);
+impl windows_core::RuntimeType for INetworkFetcher {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+windows_core::imp::interface_hierarchy!(
+    INetworkFetcher,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl INetworkFetcher {
+    pub fn Fetch(
+        &self,
+        requestid: u32,
+        docid: u32,
+        url: &windows_core::HSTRING,
+        method: &windows_core::HSTRING,
+    ) -> windows_core::Result<()> {
+        let this = self;
+        unsafe {
+            (windows_core::Interface::vtable(this).Fetch)(
+                windows_core::Interface::as_raw(this),
+                requestid,
+                docid,
+                core::mem::transmute_copy(url),
+                core::mem::transmute_copy(method),
+            )
+            .ok()
+        }
+    }
+}
+impl windows_core::RuntimeName for INetworkFetcher {
+    const NAME: &'static str = "BlitzWinUI.INetworkFetcher";
+}
+pub trait INetworkFetcher_Impl: windows_core::IUnknownImpl {
+    fn Fetch(
+        &self,
+        requestId: u32,
+        docId: u32,
+        url: &windows_core::HSTRING,
+        method: &windows_core::HSTRING,
+    ) -> windows_core::Result<()>;
+}
+impl INetworkFetcher_Vtbl {
+    pub const fn new<Identity: INetworkFetcher_Impl, const OFFSET: isize>() -> Self {
+        unsafe extern "system" fn Fetch<Identity: INetworkFetcher_Impl, const OFFSET: isize>(
+            this: *mut core::ffi::c_void,
+            requestid: u32,
+            docid: u32,
+            url: *mut core::ffi::c_void,
+            method: *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                INetworkFetcher_Impl::Fetch(
+                    this,
+                    requestid,
+                    docid,
+                    core::mem::transmute(&url),
+                    core::mem::transmute(&method),
+                )
+                .into()
+            }
+        }
+        Self {
+            base__: windows_core::IInspectable_Vtbl::new::<Identity, INetworkFetcher, OFFSET>(),
+            Fetch: Fetch::<Identity, OFFSET>,
+        }
+    }
+    pub fn matches(iid: &windows_core::GUID) -> bool {
+        iid == &<INetworkFetcher as windows_core::Interface>::IID
+    }
+}
+#[repr(C)]
+#[doc(hidden)]
+pub struct INetworkFetcher_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Fetch: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        u32,
+        u32,
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(

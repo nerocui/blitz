@@ -61,6 +61,16 @@ namespace winrt::Blitz::implementation
             m_host = winrt::BlitzWinUI::Host(m_attacher, width, height, scale, initialHtml);
             // Apply current overlay setting (default false unless changed before init)
             try { m_host.SetDebugOverlay(m_debugOverlayEnabled); } catch (...) {}
+            // Create and inject network fetcher so that resource loads (images/stylesheets) can occur.
+            try
+            {
+                m_fetcher = winrt::Blitz::NetworkFetcher(m_host);
+                m_host.SetNetworkFetcher(m_fetcher);
+            }
+            catch (...)
+            {
+                // Leave m_fetcher null; networking will remain disabled.
+            }
         }
         catch (...)
         {

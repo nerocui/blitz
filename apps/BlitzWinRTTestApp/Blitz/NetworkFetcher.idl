@@ -1,0 +1,8 @@
+namespace Blitz
+{
+    [default_interface]
+    runtimeclass NetworkFetcher : BlitzWinUI.INetworkFetcher
+    {
+        NetworkFetcher(BlitzWinUI.Host host);
+    }
+}

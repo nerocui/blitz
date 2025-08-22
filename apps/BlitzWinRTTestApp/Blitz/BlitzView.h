@@ -51,6 +51,8 @@ namespace winrt::Blitz::implementation
         winrt::Microsoft::UI::Xaml::Controls::SwapChainPanel m_panel{ nullptr };
         Attacher m_attacher{ nullptr };
         winrt::BlitzWinUI::Host m_host{ nullptr };
+    // Network fetcher (host-driven HTTP); created after host and injected via SetNetworkFetcher.
+    winrt::Blitz::NetworkFetcher m_fetcher{ nullptr };
         bool m_renderLoopAttached{ false };
         winrt::hstring m_html; // backing for HTML property
     bool m_debugOverlayEnabled{ false }; // backing for DebugOverlayEnabled property

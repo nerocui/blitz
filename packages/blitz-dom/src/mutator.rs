@@ -575,7 +575,7 @@ impl<'doc> DocumentMutator<'doc> {
         }
     }
 
-    fn load_linked_stylesheet(&mut self, target_id: usize) {
+    pub(crate) fn load_linked_stylesheet(&mut self, target_id: usize) {
         let node = &self.doc.nodes[target_id];
 
         let rel_attr = node.attr(local_name!("rel"));
@@ -619,7 +619,7 @@ impl<'doc> DocumentMutator<'doc> {
         self.doc.nodes_to_stylesheet.remove(&node_id);
     }
 
-    fn load_image(&mut self, target_id: usize) {
+    pub(crate) fn load_image(&mut self, target_id: usize) {
         let node = &self.doc.nodes[target_id];
         if let Some(raw_src) = node.attr(local_name!("src")) {
             if !raw_src.is_empty() {

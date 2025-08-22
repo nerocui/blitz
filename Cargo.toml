@@ -9,6 +9,7 @@ members = [
   "packages/blitz-traits",
   "packages/blitz-dom",
   "packages/blitz-html",
+  "packages/blitz-net-winui",
   "packages/blitz-net",
   "packages/blitz-paint",
   "packages/blitz-shell",
@@ -54,6 +55,7 @@ blitz-net = { version = "0.1.0-rc.3", path = "./packages/blitz-net", default-fea
 blitz-paint = { version = "0.1.0-rc.3", path = "./packages/blitz-paint", default-features = false }
 blitz-shell = { version = "0.1.0-rc.3", path = "./packages/blitz-shell", default-features = false }
 blitz-traits = { version = "0.1.0-rc.3", path = "./packages/blitz-traits", default-features = false }
+blitz-net-winui = { version = "0.0.0", path = "./packages/blitz-net-winui" }
 stylo_taffy = { version = "0.1.0-rc.3", path = "./packages/stylo_taffy", default-features = false }
 mini-dxn = { path = "./packages/mini-dxn", default-features = false }
 

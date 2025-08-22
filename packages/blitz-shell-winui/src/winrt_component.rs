@@ -1,4 +1,5 @@
 use anyrender::WindowRenderer as _;
+use std::sync::Arc;
 use anyrender_d2d::D2DWindowRenderer;
 use blitz_dom::{Document, DocumentConfig};
 use blitz_html::HtmlDocument;
@@ -6,6 +7,8 @@ use blitz_paint::paint_scene;
 use blitz_traits::shell::{ColorScheme, Viewport};
 
 use crate::bindings::ISwapChainAttacher;
+use crate::net_bridge;
+use blitz_dom::net::Resource;
 use windows::core::{IInspectable, Interface};
 use windows::Win32::Graphics::Direct3D11::{
     ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
@@ -28,6 +31,26 @@ pub(crate) fn debug_log(msg: &str) {
     if !bytes.ends_with(b"\n") { bytes.push(b'\n'); }
     bytes.push(0); // null terminator
     unsafe { OutputDebugStringA(PCSTR(bytes.as_ptr())); }
+}
+
+fn resource_kind_name(r: &Resource) -> &'static str {
+    match r {
+        Resource::Css(..) => "Css",
+        Resource::Image(..) => "Image",
+        Resource::Font(..) => "Font",
+        Resource::Navigation { .. } => "Navigation",
+    Resource::None => "None",
+    // If Svg variant compiled in (behind feature in blitz-dom) treat as Svg; wildcard below covers if absent
+    Resource::Svg(..) => "Svg",
+    }
+}
+
+// Expose debug_log to provider crate. Must be exported unmangled for dynamic lookup.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __blitz_host_debug_log(ptr: *const u8, len: usize) {
+    if ptr.is_null() { return; }
+    let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
+    if let Ok(msg) = std::str::from_utf8(slice) { debug_log(msg); }
 }
 
 // Use generated ISwapChainAttacher from bindings.rs
@@ -59,6 +82,12 @@ pub struct BlitzHost {
     attach_pending: bool,
     // First-frame placeholder control: ensure we never leave the panel transparent; draw exactly one placeholder frame if real content not yet loaded when attach completes.
     placeholder_drawn: bool,
+    // Network: optional host-provided fetcher (WinRT object implementing INetworkFetcher). We store it as IInspectable
+    // and only cast when making calls to reduce upfront QI cost.
+    network_fetcher: Option<windows::core::IInspectable>,
+    // Shared callback used by provider to deliver parsed resources back to DOM once handler finishes.
+    resource_callback: Option<blitz_traits::net::SharedCallback<Resource>>,
+    provider: Option<std::sync::Arc<blitz_net_winui::WinUiNetProvider<Resource>>>,
 }
 
 impl BlitzHost {
@@ -67,9 +96,12 @@ impl BlitzHost {
 
         // Minimal HTML doc placeholder; host can replace by calling load_html.
         // Start with an empty document so we don't flash placeholder content before real HTML loads.
+        // Prepare a config that will later receive a real net provider when the host supplies
+        // an INetworkFetcher. Until then it falls back to DummyNetProvider.
+        let cfg = DocumentConfig::default();
         let mut doc = HtmlDocument::from_html(
             "<html><head></head><body style=\"margin:0;padding:0;background:transparent;\"></body></html>",
-            DocumentConfig::default(),
+            cfg,
         );
 
         // Initialize viewport so first swapchain uses real size instead of 1x1.
@@ -93,6 +125,9 @@ impl BlitzHost {
             attach_queue_start: None,
             attach_pending: false,
             placeholder_drawn: false,
+            network_fetcher: None,
+            resource_callback: None,
+            provider: None,
         })
     }
     
@@ -102,6 +137,97 @@ impl BlitzHost {
         host.attacher = Some(attacher);
         host.create_and_attach_swapchain();
         Ok(host)
+    }
+
+    // Associate a WinRT INetworkFetcher implementation.
+    pub fn set_network_fetcher(&mut self, fetcher: windows::core::IInspectable) {
+        self.network_fetcher = Some(fetcher);
+        // Lazily create provider if not already created
+        if self.provider.is_none() {
+            if let Some(f) = &self.network_fetcher {
+                let provider = net_bridge::make_provider(f.clone());
+                self.provider = Some(provider);
+                debug_log("set_network_fetcher: provider created");
+            }
+        }
+    // Ensure we have a default resource callback so completed fetches populate the document.
+    self.ensure_default_resource_callback();
+    // If we have a provider, inject into current document
+    if let Some(p) = &self.provider { 
+        let had_content = self.content_loaded; 
+        self.doc.set_net_provider(p.clone() as _); 
+        if had_content { 
+            // Retroactively schedule resource fetches missed during initial parse
+            self.doc.rescan_external_resources();
+            debug_log("set_network_fetcher: rescanned external resources after late injection");
+        }
+    }
+    }
+
+    // Simplified path invoked from WinRT RequestUrl (host passes in request_id already allocated on C# side)
+    pub fn request_url(&mut self, doc_id: usize, url: &str, handler: blitz_traits::net::BoxedHandler<Resource>) {
+        if blitz_traits::net::Url::parse(url).is_err() { debug_log(&format!("request_url: invalid url '{}'", url)); return; }
+        if let Some(p) = &self.provider {
+            use blitz_traits::net::{Request, NetProvider};
+            if let Ok(parsed) = blitz_traits::net::Url::parse(url) {
+                debug_log(&format!("request_url: dispatching doc_id={} url={} (provider ok)", doc_id, parsed));
+                p.fetch(doc_id, Request::get(parsed), handler);
+            }
+        } else { debug_log("request_url: no provider available"); }
+    }
+
+    // Completion path invoked by HostRuntime from WinRT CompleteFetch
+    pub fn complete_fetch(&mut self, request_id: u32, _doc_id: u32, success: bool, data: &[u8], error: &str) {
+        if let Some(p) = &self.provider {
+            if let Some((orig_doc, handler)) = p.take_handler(request_id) {
+                if let Some(cb) = &self.resource_callback {
+                    if success {
+                        debug_log(&format!("complete_fetch: request_id={} doc_id={} success bytes={}", request_id, orig_doc, data.len()));
+                        let bytes = blitz_traits::net::Bytes::from(data.to_vec());
+                        handler.bytes(orig_doc, bytes, cb.clone());
+                    } else {
+                        debug_log(&format!("complete_fetch: request_id={} doc_id={} FAILED error='{}'", request_id, orig_doc, error));
+                        cb.call(orig_doc, Err(Some(error.to_string())));
+                    }
+                }
+                return;
+            }
+        }
+        debug_log(&format!("complete_fetch: unknown request id {} (no provider match)", request_id));
+    }
+
+    pub fn set_resource_callback(&mut self, cb: blitz_traits::net::SharedCallback<Resource>) { self.resource_callback = Some(cb); }
+
+    // If the embedding hasn't provided a resource callback, install a default one that loads
+    // resources into the current document and triggers a render. Safe because host stays pinned.
+    fn ensure_default_resource_callback(&mut self) {
+        if self.resource_callback.is_some() { return; }
+        // Newtype wrapper so we can mark Send+Sync even though it holds a raw pointer.
+        struct HostCallback { host: *mut BlitzHost }
+        unsafe impl Send for HostCallback {}
+        unsafe impl Sync for HostCallback {}
+        impl blitz_traits::net::NetCallback<Resource> for HostCallback {
+            fn call(&self, doc_id: usize, result: Result<Resource, Option<String>>) {
+                unsafe {
+                    if let Some(host) = self.host.as_mut() {
+                        match result {
+                            Ok(res) => {
+                                debug_log(&format!("resource_callback: doc_id={} kind={}", doc_id, resource_kind_name(&res)));
+                                host.doc.load_resource(res);
+                                host.needs_render = true;
+                                host.render_once();
+                            }
+                            Err(err) => {
+                                debug_log(&format!("resource_callback: doc_id={} ERROR={:?}", doc_id, err));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let cb: blitz_traits::net::SharedCallback<Resource> = Arc::new(HostCallback { host: self as *mut _ });
+        self.resource_callback = Some(cb);
+        debug_log("ensure_default_resource_callback: installed default resource callback");
     }
     
     // Method to get a reference to the attacher
@@ -144,10 +270,10 @@ impl BlitzHost {
     }
 
     fn create_and_attach_swapchain(&mut self) {
-    debug_log("create_and_attach_swapchain: entering (async queued mode)");
-    let host_t0 = std::time::Instant::now();
-    self.host_init_start = Some(host_t0);
-    let mut t_phase = host_t0;
+        debug_log("create_and_attach_swapchain: entering (async queued mode)");
+        let host_t0 = std::time::Instant::now();
+        self.host_init_start = Some(host_t0);
+    let t_phase = host_t0; // phase timing reused only for initial D3D creation measurement
         // Need an attacher to complete the hookup
         let attacher = match &self.attacher { 
             Some(a) => {
@@ -172,7 +298,7 @@ impl BlitzHost {
         let (width, height) = self.doc.viewport().window_size;
         let width = width.max(1);
         let height = height.max(1);
-    debug_log(&format!("create_and_attach_swapchain: using size {}x{}", width, height));
+        debug_log(&format!("create_and_attach_swapchain: using size {}x{}", width, height));
         unsafe {
             let acquire = crate::global_gfx::get_or_create_d3d_device();
             if acquire.is_none() { debug_log("create_and_attach_swapchain: failed to acquire global device"); return; }
@@ -180,7 +306,7 @@ impl BlitzHost {
             let device = acquire.device.clone();
             let context = acquire.context.clone();
             if acquire.created {
-                let d3d_elapsed = t_phase.elapsed().as_secs_f32()*1000.0; t_phase = std::time::Instant::now();
+                let d3d_elapsed = t_phase.elapsed().as_secs_f32()*1000.0;
                 if let Some(r) = self.renderer_mut() { r.add_host_dxgi_d3d_ms(d3d_elapsed); }
                 debug_log(&format!("create_and_attach_swapchain: created shared D3D device (feature {:?}) d3d_ms={:.2}", acquire.feature_level, d3d_elapsed));
             } else {
@@ -265,7 +391,7 @@ impl BlitzHost {
                     return;
                 }
             };
-            let sc_elapsed = t_phase.elapsed().as_secs_f32()*1000.0; t_phase = std::time::Instant::now();
+            let sc_elapsed = t_phase.elapsed().as_secs_f32()*1000.0; // t_phase no longer reused
             if let Some(r) = self.renderer_mut() { r.add_host_swapchain_ms(sc_elapsed); }
             debug_log(&format!("create_and_attach_swapchain: swapchain_ms={:.2}", sc_elapsed));
 
@@ -365,10 +491,10 @@ impl BlitzHost {
     }
 
     pub fn resize(&mut self, width: u32, height: u32, scale: f32) {
-    let viewport = Viewport::new(width, height, scale, ColorScheme::Light);
-    self.doc.set_viewport(viewport);
-    // Keep renderer sized to viewport; no window-handle surface used here
-    self.renderer.set_size(width.max(1), height.max(1));
+        let viewport = Viewport::new(width, height, scale, ColorScheme::Light);
+        self.doc.set_viewport(viewport);
+        // Keep renderer sized to viewport; no window-handle surface used here
+        self.renderer.set_size(width.max(1), height.max(1));
         // Resize DXGI swapchain if present
         if let Some(sc) = &self.swapchain {
             // Release all references (target + cached bitmap) so ResizeBuffers can succeed.
@@ -383,10 +509,10 @@ impl BlitzHost {
             if hr.is_ok() { debug_log(&format!("resize: swapchain ResizeBuffers ok ({}x{})", width, height)); }
             else { debug_log(&format!("resize: ResizeBuffers failed hr={:?} ({}x{})", hr, width, height)); }
         }
-    // Mark for redraw (layout may depend on viewport size)
-    self.needs_render = true;
-    // Eagerly render once to avoid blank gap after resize
-    if self.content_loaded { self.render_once(); }
+        // Mark for redraw (layout may depend on viewport size)
+        self.needs_render = true;
+        // Eagerly render once to avoid blank gap after resize
+        if self.content_loaded { self.render_once(); }
     }
 
     pub fn render_once(&mut self) {
@@ -460,27 +586,51 @@ impl BlitzHost {
     }
 
     pub fn load_html(&mut self, html: &str) {
-    // If swapchain active, restart initial metrics now so timings reflect real document; else defer until swapchain creation
-    let swapchain_ready = self.swapchain.is_some();
-    if swapchain_ready { self.renderer.restart_initial_measurement(); } else { self.pending_content_measurement = true; }
-    let cfg = DocumentConfig::default();
-    let new_doc = HtmlDocument::from_html(html, cfg);
+        // If swapchain active, restart initial metrics now so timings reflect real document; else defer until swapchain creation
+        let swapchain_ready = self.swapchain.is_some();
+        if swapchain_ready { self.renderer.restart_initial_measurement(); } else { self.pending_content_measurement = true; }
+        // Build config with net provider if available so new document can issue resource fetches.
+    let mut cfg = DocumentConfig::default();
+    if let Some(p) = &self.provider { cfg.net_provider = Some(p.clone() as _); }
+        let new_doc = HtmlDocument::from_html(html, cfg);
         let scroll = self.doc.viewport_scroll();
         let viewport = self.doc.viewport().clone();
         self.doc = Box::new(new_doc);
         self.doc.set_viewport(viewport);
         self.doc.set_viewport_scroll(scroll);
-    // Perform initial style/layout/shaping before first real frame so metrics capture them
-    self.doc.resolve();
-    debug_log(&format!("load_html: new document length={} chars", html.len()));
-    self.content_loaded = true;
-    if swapchain_ready {
-        self.needs_render = true; // schedule first real paint now
-        self.render_once();
-    } else {
-        // Will render automatically when swapchain attaches
-        debug_log("load_html: swapchain not yet ready; deferring initial measurement start until attach");
+        // Perform initial style/layout/shaping before first real frame so metrics capture them
+        self.doc.resolve();
+        if self.provider.is_some() { 
+            // Defensive: if for some reason the eager ops didn\'t schedule, force rescan
+            let (sheets, imgs) = self.doc.external_resource_summary();
+            debug_log(&format!("load_html: resource summary after parse sheets={} imgs={}", sheets, imgs));
+            if sheets > 0 || imgs > 0 { 
+                self.doc.rescan_external_resources();
+                debug_log("load_html: forced rescan_external_resources after parse");
+            }
+        } else {
+            debug_log("load_html: no provider present at parse (will rely on later rescan)");
+        }
+        debug_log(&format!("load_html: new document length={} chars", html.len()));
+        self.content_loaded = true;
+        if swapchain_ready {
+            self.needs_render = true; // schedule first real paint now
+            self.render_once();
+        } else {
+            // Will render automatically when swapchain attaches
+            debug_log("load_html: swapchain not yet ready; deferring initial measurement start until attach");
+        }
     }
+
+    // Helper to quickly inject a test snippet that should trigger network fetches for image + stylesheet.
+    pub fn load_test_network_snippet(&mut self) {
+        let snippet = r#"<html><head>
+            <link rel=\"stylesheet\" href=\"https://example.com/test.css\">
+            </head><body>
+            <img src=\"https://example.com/test.png\" style=\"width:100px;height:100px;\">
+            </body></html>"#;
+        debug_log("load_test_network_snippet: loading test HTML");
+        self.load_html(snippet);
     }
 
     // Input bridging (to be called from C# event handlers)

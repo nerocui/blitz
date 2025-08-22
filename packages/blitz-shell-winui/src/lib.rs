@@ -11,6 +11,7 @@
 mod winrt_component;
 mod global_gfx;
 mod bindings;
+mod net_bridge;
 
 #[derive(Clone, Copy)]
 pub struct SwapChainPanelHandle {
@@ -184,6 +185,34 @@ impl IHost_Impl for HostRuntime_Impl {
         let imp = self.get_impl();
         if let Some(inner) = imp.inner.lock().unwrap().as_mut() {
             inner.set_debug_overlay(enabled);
+        }
+        Ok(())
+    }
+
+    fn SetNetworkFetcher(&self, fetcher: windows_core::Ref<'_, IInspectable>) -> windows_core::Result<()> {
+        let imp = self.get_impl();
+        if let Some(inner) = imp.inner.lock().unwrap().as_mut() {
+            if let Some(obj) = fetcher.as_ref() { inner.set_network_fetcher(obj.clone()); }
+        }
+        Ok(())
+    }
+
+    fn CompleteFetch(&self, request_id: u32, doc_id: u32, success: bool, data: &[u8], error_message: &HSTRING) -> windows_core::Result<()> {
+        let imp = self.get_impl();
+        if let Some(inner) = imp.inner.lock().unwrap().as_mut() {
+            let err = error_message.to_string();
+            inner.complete_fetch(request_id, doc_id, success, data, &err);
+        }
+        Ok(())
+    }
+
+    fn RequestUrl(&self, doc_id: u32, url: &::windows::core::HSTRING, _request_id: u32) -> ::windows::core::Result<()> {
+        use blitz_dom::net::Resource;
+        let imp = self.get_impl();
+        if let Some(inner) = imp.inner.lock().unwrap().as_mut() {
+            struct NoopHandler; impl blitz_traits::net::NetHandler<Resource> for NoopHandler { fn bytes(self: Box<Self>, _doc: usize, _b: blitz_traits::net::Bytes, _cb: blitz_traits::net::SharedCallback<Resource>) {} }
+            let handler: blitz_traits::net::BoxedHandler<Resource> = Box::new(NoopHandler);
+            inner.request_url(doc_id as usize, &url.to_string(), handler);
         }
         Ok(())
     }

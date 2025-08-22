@@ -278,6 +278,44 @@ impl BaseDocument {
         self.net_provider = net_provider;
     }
 
+    /// If a network provider is injected after the document has already been parsed
+    /// we need to retroactively schedule resource loads for existing elements like
+    /// <img src> and <link rel="stylesheet" href>. This is normally handled eagerly
+    /// during tree construction, but without a provider those operations were no-ops.
+    /// This helper can be called immediately after `set_net_provider` to trigger the
+    /// missed loads.
+    pub fn rescan_external_resources(&mut self) {
+        use crate::mutator::DocumentMutator;
+        // Collect candidate node ids first to avoid double-borrow issues.
+        let mut images = Vec::new();
+        let mut stylesheets = Vec::new();
+        for (id, node) in self.nodes.iter() {
+            if !node.flags.is_in_document() { continue; }
+            if let Some(el) = node.element_data() {
+                let tag = el.name.local.as_ref();
+                match tag {
+                    "img" => {
+                        if el.attr(markup5ever::local_name!("src")).is_some() { images.push(id); }
+                    }
+                    "link" => {
+                        let rel = el.attr(markup5ever::local_name!("rel"));
+                        let href = el.attr(markup5ever::local_name!("href"));
+                        if let (Some(rel), Some(_)) = (rel, href) {
+                            if rel.split_ascii_whitespace().any(|r| r == "stylesheet") { stylesheets.push(id); }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if images.is_empty() && stylesheets.is_empty() { return; }
+        // Use a mutator to reuse existing loading helpers
+        let mut mutator = DocumentMutator::new(self);
+        for id in stylesheets { mutator.load_linked_stylesheet(id); }
+        for id in images { mutator.load_image(id); }
+        // Flush not strictly required for these operations (they schedule fetches immediately)
+    }
+
     /// Set the Document's navigation provider
     pub fn set_navigation_provider(&mut self, navigation_provider: Arc<dyn NavigationProvider>) {
         self.navigation_provider = navigation_provider;
@@ -659,6 +697,32 @@ impl BaseDocument {
             }
             _ => {}
         }
+    }
+
+    /// Return (stylesheet_link_count, img_count) for debugging network resource discovery.
+    pub fn external_resource_summary(&self) -> (usize, usize) {
+        let mut sheets = 0usize;
+        let mut imgs = 0usize;
+        for (_id, node) in self.nodes.iter() {
+            if !node.flags.is_in_document() { continue; }
+            if let Some(el) = node.element_data() {
+                let tag = el.name.local.as_ref();
+                match tag {
+                    "link" => {
+                        let rel = el.attr(markup5ever::local_name!("rel"));
+                        let href = el.attr(markup5ever::local_name!("href"));
+                        if let (Some(rel), Some(_)) = (rel, href) {
+                            if rel.split_ascii_whitespace().any(|r| r == "stylesheet") { sheets += 1; }
+                        }
+                    }
+                    "img" => {
+                        if el.attr(markup5ever::local_name!("src")).is_some() { imgs += 1; }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        (sheets, imgs)
     }
 
     pub fn snapshot_node(&mut self, node_id: usize) {

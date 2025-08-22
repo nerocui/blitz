@@ -1,0 +1,16 @@
+[package]
+name = "blitz-net-winui"
+version = "0.0.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+blitz-traits = { path = "../blitz-traits" }
+url = "2"
+bytes = "1"
+http = "0.2"
+serde = { version = "1", features = ["derive"] }
+
+[package.metadata.docs.rs]
+all-features = true
