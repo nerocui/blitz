@@ -249,26 +249,26 @@ impl<'a> PaintScene for D2DScenePainter<'a> {
         let mut v = Vec::new();
         shape_to_path_elements(shape, &mut v);
         let t = transform.as_coeffs();
-        if t[4] != 0.0 || t[5] != 0.0 {
+        let (a, b, c, d, e, f_) = (t[0], t[1], t[2], t[3], t[4], t[5]);
+        // Apply full affine if it's not identity; previously we only applied translation which lost scale.
+        if !(a == 1.0 && b == 0.0 && c == 0.0 && d == 1.0 && e == 0.0 && f_ == 0.0) {
+            let mut apply = |x: &mut f64, y: &mut f64| {
+                let ox = *x;
+                let oy = *y;
+                *x = a * ox + c * oy + e;
+                *y = b * ox + d * oy + f_;
+            };
             for el in &mut v {
                 match el {
-                    PathEl::MoveTo(p) | PathEl::LineTo(p) => {
-                        p.x += t[4];
-                        p.y += t[5];
-                    }
+                    PathEl::MoveTo(p) | PathEl::LineTo(p) => apply(&mut p.x, &mut p.y),
                     PathEl::QuadTo(p1, p2) => {
-                        p1.x += t[4];
-                        p1.y += t[5];
-                        p2.x += t[4];
-                        p2.y += t[5];
+                        apply(&mut p1.x, &mut p1.y);
+                        apply(&mut p2.x, &mut p2.y);
                     }
                     PathEl::CurveTo(p1, p2, p3) => {
-                        p1.x += t[4];
-                        p1.y += t[5];
-                        p2.x += t[4];
-                        p2.y += t[5];
-                        p3.x += t[4];
-                        p3.y += t[5];
+                        apply(&mut p1.x, &mut p1.y);
+                        apply(&mut p2.x, &mut p2.y);
+                        apply(&mut p3.x, &mut p3.y);
                     }
                     PathEl::ClosePath => {}
                 }
@@ -293,26 +293,25 @@ impl<'a> PaintScene for D2DScenePainter<'a> {
         let mut v = Vec::new();
         shape_to_path_elements(shape, &mut v);
         let t = transform.as_coeffs();
-        if t[4] != 0.0 || t[5] != 0.0 {
+        let (a, b, c, d, e, f_) = (t[0], t[1], t[2], t[3], t[4], t[5]);
+        if !(a == 1.0 && b == 0.0 && c == 0.0 && d == 1.0 && e == 0.0 && f_ == 0.0) {
+            let mut apply = |x: &mut f64, y: &mut f64| {
+                let ox = *x;
+                let oy = *y;
+                *x = a * ox + c * oy + e;
+                *y = b * ox + d * oy + f_;
+            };
             for el in &mut v {
                 match el {
-                    PathEl::MoveTo(p) | PathEl::LineTo(p) => {
-                        p.x += t[4];
-                        p.y += t[5];
-                    }
+                    PathEl::MoveTo(p) | PathEl::LineTo(p) => apply(&mut p.x, &mut p.y),
                     PathEl::QuadTo(p1, p2) => {
-                        p1.x += t[4];
-                        p1.y += t[5];
-                        p2.x += t[4];
-                        p2.y += t[5];
+                        apply(&mut p1.x, &mut p1.y);
+                        apply(&mut p2.x, &mut p2.y);
                     }
                     PathEl::CurveTo(p1, p2, p3) => {
-                        p1.x += t[4];
-                        p1.y += t[5];
-                        p2.x += t[4];
-                        p2.y += t[5];
-                        p3.x += t[4];
-                        p3.y += t[5];
+                        apply(&mut p1.x, &mut p1.y);
+                        apply(&mut p2.x, &mut p2.y);
+                        apply(&mut p3.x, &mut p3.y);
                     }
                     PathEl::ClosePath => {}
                 }
@@ -973,23 +972,21 @@ impl D2DWindowRenderer {
                     Command::FillPath { path, brush } => {
                         fill_path_count += 1;
                         if let RecordedBrush::Image(img) = &brush {
-                            // Fast path: image fill -> compute bbox and DrawBitmap.
-                            let mut minx = f32::INFINITY;
-                            let mut miny = f32::INFINITY;
-                            let mut maxx = f32::NEG_INFINITY;
-                            let mut maxy = f32::NEG_INFINITY;
-                            for el in &path {
-                                match el {
-                                    PathEl::MoveTo(p) | PathEl::LineTo(p) => { minx = minx.min(p.x as f32); miny = miny.min(p.y as f32); maxx = maxx.max(p.x as f32); maxy = maxy.max(p.y as f32); }
-                                    PathEl::QuadTo(p1, p2) => { for q in [p1, p2] { minx = minx.min(q.x as f32); miny = miny.min(q.y as f32); maxx = maxx.max(q.x as f32); maxy = maxy.max(q.y as f32); } }
-                                    PathEl::CurveTo(p1, p2, p3) => { for q in [p1, p2, p3] { minx = minx.min(q.x as f32); miny = miny.min(q.y as f32); maxx = maxx.max(q.x as f32); maxy = maxy.max(q.y as f32); } }
-                                    PathEl::ClosePath => {}
+                            // Build geometry to honor any complex shape / potential future rounded corners.
+                            if let Some(geom) = self.build_path_geometry(&path) {
+                                // Bounds give target box (CSS layout size already applied in path coordinates).
+                                let bounds = unsafe { geom.GetBounds(None).unwrap_or(D2D_RECT_F{ left:0.0, top:0.0, right:0.0, bottom:0.0 }) };
+                                let w = bounds.right - bounds.left;
+                                let h = bounds.bottom - bounds.top;
+                                if w > 0.5 && h > 0.5 {
+                                    let bitmap = self.get_or_create_image_bitmap(img);
+                                    // Optional clip to geometry (handles non-rect paths); keep simple axis clip when rectangular.
+                                    // Detect rectangular by comparing path bbox to layout; if not exact we can push clip.
+                                    let dest = bounds; // scale bitmap to fit dest
+                                    unsafe {
+                                        ctx.DrawBitmap(&bitmap, Some(&dest), img.alpha, D2D1_INTERPOLATION_MODE_LINEAR, None, None);
+                                    }
                                 }
-                            }
-                            if minx.is_finite() && maxx.is_finite() && maxx > minx && maxy > miny {
-                                let bitmap = self.get_or_create_image_bitmap(img);
-                                let dest = D2D_RECT_F { left: minx, top: miny, right: maxx, bottom: maxy };
-                                unsafe { ctx.DrawBitmap(&bitmap, Some(&dest), img.alpha, D2D1_INTERPOLATION_MODE_LINEAR, None, None); }
                             }
                         } else if let Some(geom) = self.build_path_geometry(&path) {
                             let brush_obj = self.get_or_create_brush(&brush);
