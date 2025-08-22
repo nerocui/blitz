@@ -71,7 +71,7 @@ tracing = { workspace = true, optional = true }
 fastrand = { workspace = true }
 
 # Media & Decoding
-image = { workspace = true }
+image = { workspace = true, features = ["jpeg", "png", "gif", "webp"] }
 usvg = { workspace = true, optional = true }
 woff = { workspace = true, optional = true, features = ["version2"] }
 woff2 = { workspace = true, optional = true }
