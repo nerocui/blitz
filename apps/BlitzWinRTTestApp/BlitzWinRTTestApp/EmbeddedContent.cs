@@ -9,9 +9,12 @@ namespace BlitzWinRTTestApp
     internal static class EmbeddedContent
     {
         private static string? _demoHtml;
+        private static string? _htmlGallery;
         private const string DemoHtmlResourceName = "BlitzWinRTTestApp.Assets.demo.html";
+        private const string HtmlGalleryResourceName = "BlitzWinRTTestApp.Assets.html-gallery.html";
 
         public static string DemoHtml => _demoHtml ??= ReadResource(DemoHtmlResourceName);
+        public static string HtmlGallery => _htmlGallery ??= ReadResource(HtmlGalleryResourceName);
 
         private static string ReadResource(string name)
         {

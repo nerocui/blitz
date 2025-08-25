@@ -17,9 +17,13 @@
         <NavigationView x:Name="nvSample" SelectionChanged="nvSample_SelectionChanged">
             <NavigationView.MenuItems>
                 <NavigationViewItem
-                    Content="Single Page"
+                    Content="Gallery"
                     Icon="Page"
                     IsSelected="True"
+                    Tag="Gallery" />
+                <NavigationViewItem
+                    Content="Single Page"
+                    Icon="Page"
                     Tag="SinglePage" />
                 <NavigationViewItem
                     Content="Cards Page"

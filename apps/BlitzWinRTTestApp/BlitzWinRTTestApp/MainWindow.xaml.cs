@@ -25,6 +25,9 @@ public sealed partial class MainWindow : Window
             // Navigate to the page associated with the selected item
             switch (selectedItem.Tag)
             {
+                case "Gallery":
+                    contentFrame.Navigate(typeof(GalleryComparePage));
+                    break;
                 case "SinglePage":
                     contentFrame.Navigate(typeof(SinglePage));
                     break;

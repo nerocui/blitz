@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTML + CSS Gallery (Semantics & Simple Effects)</title>
+    <!-- Purpose: Exhaustive semantic element & basic CSS feature smoke test for the Blitz WinUI host.
+             Guidelines:
+             * First section: raw HTML semantics WITHOUT custom CSS (only minimal reset for legibility).
+             * Second section: targeted CSS feature probes (no fancy animations; keep deterministic & isolated).
+             * Excluded: <dialog> (requested), heavy media sources, large external assets.
+             * Each element shown once or in a compact representative cluster.
+             * This file intentionally retains inline styles for certain samples to exercise style attribute parsing.
+    -->
+    <style>
+        /* Clean, organized styling (still avoiding flex/grid/animation to keep engine demands minimal) */
+        :root { --bg:#fff; --text:#222; --muted:#555; --border:#d0d7de; --accent:#0666cc; --accent-soft:#e5f1ff; --panel:#fafbfc; }
+        * { box-sizing:border-box; }
+        body { font-family: system-ui, Arial, sans-serif; line-height:1.45; margin:0; background:var(--bg); color:var(--text); }
+        a { color:var(--accent); }
+        nav { position:sticky; top:0; background:var(--bg); border-bottom:1px solid var(--border); padding:6px 10px 7px; z-index:20; font-size:14px; }
+        nav a { margin-right:.85rem; text-decoration:none; padding:2px 5px; border-radius:4px; }
+        nav a:hover, nav a:focus { background:var(--accent-soft); }
+        main { padding:0 14px 40px; }
+        h1 { font-size:1.75rem; margin:1.4rem 0 .9rem; line-height:1.2; }
+        h1#css-tests { margin-top:3.2rem; }
+        h2 { font-size:1.18rem; margin:1.25rem 0 .55rem; padding-bottom:2px; border-bottom:1px solid #ececec; }
+        h3,h4,h5,h6 { margin:1rem 0 .45rem; }
+        p { margin:.6rem 0 .85rem; }
+        section { margin:2.1rem 0 2.4rem; padding:0 12px 0 16px; border-left:4px solid var(--border); }
+        section[data-test^="css-"] { background:linear-gradient(180deg,#fff,#fdfdfd); border-left-color:var(--accent); padding-top:.4rem; padding-bottom:.75rem; }
+        hr { margin:1.4rem 0; border:none; border-top:1px solid var(--border); }
+        code, pre, kbd, samp { font-family:Consolas, Menlo, monospace; font-size:.95em; }
+        pre { background:#f5f7f9; border:1px solid var(--border); padding:6px 8px; border-radius:4px; overflow:auto; }
+        table { border-collapse:collapse; margin-top:.4rem; }
+        table, th, td { border:1px solid #888; }
+        th, td { padding:4px 6px; font-size:13px; }
+        tbody tr:nth-child(even) { background:#f5f5f5; }
+        caption { font-size:12px; color:var(--muted); padding:3px 0 5px; }
+        .meta-note { font-size:11px; color:var(--muted); margin:6px 14px 14px; }
+        h2[id] { position:relative; }
+        h2[id]::after { content:"#"; position:absolute; left:-14px; top:0; color:var(--accent); opacity:0; transition:opacity .15s linear; }
+        h2[id]:hover::after { opacity:1; }
+    /* CSS TEST SECTION (basic properties only: color, background, border, radius, spacing) */
+    /* NOTE: Removed '#css-tests' scope so styles apply (previously only matched descendants of the heading, which has no children). */
+    .b { width:80px; height:50px; background:#eee; display:inline-block; vertical-align:top; margin:4px 6px 4px 0; text-align:center; line-height:50px; font-size:12px; border:1px solid #999; box-sizing:border-box; }
+    .b.shadow { box-shadow:4px 4px 6px rgba(0,0,0,.35); background:#fff; }
+    .b.radius { border-radius:12px; }
+    .b.gradient { background:linear-gradient(135deg,#4e9,#06c); color:#fff; }
+    .b.outline { outline:2px dashed #f60; }
+    .forms input, .forms select, .forms textarea { margin:4px 0; }
+    .shadow-grid { margin-top:6px; }
+    .shadow-grid .sb { width:90px; height:50px; background:#fff; border:1px solid #ccc; display:inline-block; margin:6px 8px 0 0; vertical-align:top; text-align:center; font-size:11px; line-height:50px; }
+    /* Individual explicit shadow declarations (explicit spread length for parser strictness) */
+    .shadow-grid .s1 { box-shadow: 4px 4px 6px 0 rgba(0,0,0,.4); }
+    .shadow-grid .s2 { box-shadow: 0 0 0 4px rgba(255,0,0,.6); }
+    .shadow-grid .s3 { box-shadow: 0 0 10px 0 #06c; }
+    .shadow-grid .s4 { box-shadow: 2px 2px 4px 0 #000, -2px -2px 4px 0 #999; }
+    .shadow-grid .s5 { box-shadow: inset 0 0 8px 0 rgba(0,0,0,.5); }
+    .shadow-grid .s6 { box-shadow: 0 0 0 0 rgba(0,0,0,0); /* should look same as no shadow */ }
+    /* Additional focused test element styling */
+    .focus-tests a { display:inline-block; padding:4px 8px; border:1px solid #666; text-decoration:none; color:#06c; margin:4px 6px 0 0; background:#fff; border-radius:4px; }
+    .focus-tests a:focus { outline:2px solid #06c; outline-offset:2px; background:#eef; }
+    /* Overflow test */
+    .scroll-box { width:160px; height:60px; border:1px solid #999; overflow:auto; background:#fafafa; padding:4px; font-size:11px; box-sizing:border-box; }
+    /* List style showcase */
+    .list-demo { font-size:12px; }
+    .list-demo ul { margin:4px 16px 8px; }
+    .list-demo ul.none { list-style:none; padding-left:0; }
+    /* Border style matrix */
+    .border-matrix span { display:inline-block; width:70px; height:40px; margin:4px; line-height:40px; text-align:center; font-size:11px; background:#fff; }
+    .border-matrix .solid1 { border:1px solid #333; }
+    .border-matrix .solid3 { border:3px solid #06c; }
+    .border-matrix .dashed { border:2px dashed #c60; }
+    .border-matrix .dotted { border:2px dotted #c60; }
+    .border-matrix .double { border:4px double #666; }
+    .border-matrix .mixed { border:3px groove #666; }
+    /* Overflow clipping vs visible test */
+    .clip-box, .visible-box { width:120px; height:40px; border:1px solid #999; margin:4px; display:inline-block; font-size:11px; position:relative; }
+    .clip-box { overflow:hidden; }
+    .visible-box { overflow:visible; }
+    .clip-box span, .visible-box span { position:absolute; top:0; left:0; transform:translate(50px,-10px); background:#fdd; padding:2px 4px; border:1px solid #c66; }
+    /* Forms refinement */
+    fieldset { border:1px solid var(--border); padding:10px 12px 14px; border-radius:6px; }
+    legend { padding:0 6px; font-weight:600; }
+    .forms label { display:inline-block; width:170px; font-size:12px; vertical-align:top; }
+    button { border:1px solid #777; background:#f3f3f3; padding:4px 10px; border-radius:4px; cursor:pointer; }
+    button:hover, button:focus { background:#e9e9e9; }
+    /* Utility */
+    .highlight-box { background:#fff; border:1px solid var(--border); padding:8px 10px; border-radius:6px; font-size:12px; margin:6px 0 12px; }
+    .legend-note { font-size:11px; color:var(--muted); margin:4px 0 0; }
+    address { font-style:normal; font-size:12px; line-height:1.3; background:#f5f7f9; border:1px solid var(--border); padding:6px 8px; border-radius:4px; }
+    .shadow-grid .sb { border-radius:4px; }
+    </style>
+</head>
+<body>
+        <!-- Navigation anchors for quick manual verification -->
+        <nav aria-label="Gallery navigation">
+        <strong style="font-weight:600;">Jump:</strong>
+        <a href="#semantics">Semantics</a>
+        <a href="#text">Text</a>
+        <a href="#inline">Inline</a>
+        <a href="#tables">Tables</a>
+        <a href="#forms">Forms</a>
+        <a href="#interactive">Interactive</a>
+        <a href="#css-tests">CSS</a>
+    </nav>
+    <main>
+        <!-- Quick category summary for automated harnesses (counts kept simple) -->
+        <p class="meta-note" aria-hidden="true">
+            Categories: Structure | Text | Inline | Lists | Tables | Forms | Interactive | CSS Core / Shadows / Lists / Borders / Colors / Gradients | Fonts | Radius | Border Width | Padding | Margin | Overflow.
+        </p>
+
+    <h1 id="semantics">HTML Semantics Gallery</h1>
+    <p class="highlight-box">Purpose: enumerate core HTML semantics & baseline CSS rendering for the Blitz host. Kept deterministic & lightweight. Excludes &lt;dialog&gt; and heavy media. Inline style attributes present intentionally.</p>
+
+    <section id="structure" data-test="section-structure">
+        <h2>Document / Sectioning</h2>
+        <header><h3>Header</h3><p>Inside &lt;header&gt; element.</p></header>
+        <main>
+            <article>
+                <h4>Article Heading (h4)</h4>
+                <p>Article paragraph with <em>emphasis</em> and <strong>strong importance</strong>.</p>
+            </article>
+            <section>
+                <h5>Nested Section (h5)</h5>
+                <p>Short content.</p>
+            </section>
+            <aside>
+                <h6>Aside (h6)</h6>
+                <p>Supplementary info.</p>
+            </aside>
+        </main>
+        <address>
+            Example Company · 123 Markup Lane · Testville · <a href="mailto:info@example.com">info@example.com</a>
+        </address>
+        <footer><small>Footer small text.</small></footer>
+    </section>
+
+    <section id="text" data-test="section-text">
+        <h2>Text Content & Block Elements</h2>
+        <p>Paragraph with line<br>break test and a horizontal rule below.</p>
+        <hr>
+        <pre>preformatted
+    text   preserves   spacing</pre>
+        <blockquote cite="https://example.com"><p>Blockquote &mdash; referenced quotation.</p></blockquote>
+        <div>Generic <code>&lt;div&gt;</code> container.</div>
+        <p>Definition list:</p>
+        <dl>
+            <dt>Term</dt><dd>Definition of the term.</dd>
+            <dt>Another</dt><dd>Second definition entry.</dd>
+        </dl>
+    </section>
+
+    <section id="inline" data-test="section-inline">
+        <h2>Inline Text Semantics</h2>
+    <p><a href="#">anchor</a>, <em>em</em>, <strong>strong</strong>, <small>small</small>, <s>strikethrough</s>, <cite>cite</cite>, <q cite="https://example.com">inline quote</q>, <dfn>definition</dfn>, <abbr title="HyperText Markup Language">HTML</abbr>, <data value="42">data</data>, <time datetime="2025-08-25">time</time>, <code>code()</code>, <var>x</var>, <samp>sample output</samp>, <kbd>Ctrl+C</kbd>, H<sub>2</sub>O, E=mc<sup>2</sup>, <i>i</i>, <b>b</b>, <u>u</u>, <mark>mark</mark>, <ruby>漢<rt>kan</rt></ruby>, <bdi>BiDi</bdi>, <bdo dir="rtl">Reversed</bdo>, <span>span</span>, <ins>inserted</ins>, <del>deleted</del>, w<wbr>br split.</p>
+    </section>
+
+    <section id="lists" data-test="section-lists">
+        <h2>Lists</h2>
+        <ol><li>First</li><li>Second</li><li>Third</li></ol>
+        <ul><li>Alpha</li><li>Beta</li><li>Gamma</li></ul>
+    </section>
+
+    <!-- Media section removed per request: previously contained img/figure/picture/audio/video/svg/iframe/object/embed/map -->
+
+    <section id="tables" data-test="section-tables">
+        <h2>Tables</h2>
+        <table>
+            <caption>Sample Caption</caption>
+            <colgroup><col span="1"><col span="1"></colgroup>
+            <thead><tr><th>Head1</th><th>Head2</th></tr></thead>
+            <tbody><tr><td>R1C1</td><td>R1C2</td></tr><tr><td>R2C1</td><td>R2C2</td></tr></tbody>
+            <tfoot><tr><td colspan="2">Foot</td></tr></tfoot>
+        </table>
+    </section>
+
+    <section id="forms" data-test="section-forms">
+        <h2>Forms & Inputs</h2>
+        <form>
+            <fieldset>
+                <legend>Account</legend>
+                <label>Text <input name="t" type="text" placeholder="text"></label>
+                <label>Email <input name="e" type="email" value="a@b.c"></label>
+                <label>Password <input name="p" type="password" value="secret"></label>
+                <label>Number <input name="n" type="number" value="5" min="0" max="10"></label>
+                <label>Range <input name="r" type="range" min="0" max="100" value="50"></label>
+                <label>Color <input name="c" type="color" value="#336699"></label>
+                <label>Date <input name="d" type="date" value="2025-08-25"></label>
+                <label>Time <input name="ti" type="time" value="12:34"></label>
+                <label>Checkbox <input name="cb" type="checkbox" checked></label>
+                <label>Radio A <input name="rgrp" type="radio" checked></label>
+                <label>Radio B <input name="rgrp" type="radio"></label>
+                <label>File <input name="f" type="file"></label>
+                <label>URL <input name="u" type="url" value="https://example.com"></label>
+                <label>Search <input name="s" type="search" value="query"></label>
+                <label>Tel <input name="tel" type="tel" value="123"></label>
+                <label>Textarea <textarea name="ta" rows="2">hi</textarea></label>
+                <label>Select <select name="sel"><optgroup label="Group"><option>One</option><option selected>Two</option></optgroup></select></label>
+                <label>Datalist <input list="dl1" name="dl"><datalist id="dl1"><option value="Alpha"><option value="Beta"></datalist></label>
+                <label>Output <output name="o" for="n r">42</output></label>
+                <progress max="100" value="60"></progress>
+                <meter min="0" max="100" low="30" high="70" optimum="50" value="55">55</meter>
+                <button type="submit">Submit</button>
+                <button type="reset">Reset</button>
+            </fieldset>
+        </form>
+    </section>
+
+    <section id="interactive" data-test="section-interactive">
+        <h2>Interactive (No &lt;dialog&gt;)</h2>
+        <details open><summary>Details / Summary</summary><p>Expanded content.</p></details>
+    </section>
+
+
+    <h1 id="css-tests">CSS Feature Probes</h1>
+    <p class="highlight-box">Basic visual / layout primitives (no flex / grid / transforms / complex positioning). Focus: backgrounds, borders, shadows, spacing, overflow & form controls. If a category renders blank, that path may be unimplemented.</p>
+
+    <section data-test="css-core-boxes">
+        <h2>Core Boxes</h2>
+        <div>
+        <div class="b" data-test="box-base">base</div>
+        <div class="b shadow" data-test="box-shadow">shadow</div>
+        <div class="b radius" data-test="box-radius">radius</div>
+        <div class="b gradient" data-test="box-gradient">gradient</div>
+        <div class="b outline" data-test="box-outline">outline</div>
+        </div>
+    </section>
+
+    <section data-test="css-box-shadow-variants">
+        <h2 id="shadow-variants">Box Shadow Variants (Diagnostic)</h2>
+        <p>Each square uses a different box-shadow syntax to isolate parsing / rendering issues.</p>
+        <div class="shadow-grid">
+        <div class="sb s1" data-test="shadow-offset">offset</div>
+        <div class="sb s2" data-test="shadow-outline">outline</div>
+        <div class="sb s3" data-test="shadow-glow">glow</div>
+        <div class="sb s4" data-test="shadow-multi">multi</div>
+        <div class="sb s5" data-test="shadow-inset">inset</div>
+        <div class="sb s6" data-test="shadow-none">none</div>
+        </div>
+    <p class="legend-note">Compare variants. If all appear flat like "none", box-shadow path is skipped. If only inset fails, inset branch unsupported.</p>
+        <p style="font-size:11px;color:#555;margin-top:2px;">Legend: offset=classic drop, outline=spread ring, glow=blur only, multi=stacked, inset=inner shadow.</p>
+    </section>
+
+    <section class="focus-tests" data-test="css-focus">
+        <h2>Focus & Outline</h2>
+        <p>Keyboard focus ring visibility (Tab to navigate):</p>
+        <p><a href="#">Link A</a><a href="#">Link B</a><a href="#">Link C</a></p>
+    </section>
+
+    <section class="list-demo" data-test="css-list-styles">
+        <h2>List Styles</h2>
+        <ul class="disc"><li>Disc A</li><li>Disc B</li></ul>
+        <ul class="circle" style="list-style:circle;">
+            <li>Circle A</li><li>Circle B</li>
+        </ul>
+        <ul class="square" style="list-style:square;">
+            <li>Square A</li><li>Square B</li>
+        </ul>
+        <ul class="none">
+            <li>No bullet A</li><li>No bullet B</li>
+        </ul>
+        <ol style="margin:8px 16px;">
+            <li>One</li><li>Two</li>
+        </ol>
+    </section>
+
+    <section data-test="css-border-matrix">
+        <h2>Border Styles Matrix</h2>
+        <div class="border-matrix">
+            <span class="solid1">1px</span>
+            <span class="solid3">3px</span>
+            <span class="dashed">dash</span>
+            <span class="dotted">dot</span>
+            <span class="double">dbl</span>
+            <span class="mixed">groove</span>
+        </div>
+    </section>
+
+    <section data-test="css-colors">
+        <h2 id="colors">Colors (Text & Background)</h2>
+        <p><span style="color:#c00">red text</span> | <span style="color:#090">green text</span> | <span style="color:#06c">blue text</span></p>
+        <p><span style="background:#ff0">bg yellow</span> | <span style="background:#0ff">bg cyan</span> | <span style="background:#f0f">bg magenta</span></p>
+    </section>
+
+    <section data-test="css-gradients">
+        <h2 id="gradients">Gradients</h2>
+        <div>
+            <div style="width:110px;height:50px;display:inline-block;margin:4px;background:linear-gradient(90deg,#f60,#06c);color:#fff;line-height:50px;text-align:center;font-size:12px;">linear</div>
+            <div style="width:110px;height:50px;display:inline-block;margin:4px;background:radial-gradient(circle,#fff,#999);line-height:50px;text-align:center;font-size:12px;">radial</div>
+            <div style="width:110px;height:50px;display:inline-block;margin:4px;background:repeating-linear-gradient(45deg,#eee 0 8px,#ccc 8px 16px);line-height:50px;text-align:center;font-size:11px;">repeating</div>
+        </div>
+    </section>
+
+    <section data-test="css-fonts">
+        <h2 id="fonts">Fonts</h2>
+        <p style="font-size:12px;">size 12px</p>
+        <p style="font-size:18px;">size 18px</p>
+        <p style="font-weight:bold;">bold</p>
+        <p style="font-style:italic;">italic</p>
+        <p style="font-family:serif;">serif family</p>
+        <p style="font-family:monospace;">monospace family</p>
+    </section>
+
+    <section data-test="css-radius">
+        <h2 id="radius">Corner Radius</h2>
+        <div>
+            <div style="width:70px;height:40px;background:#ddd;border:1px solid #999;border-radius:4px;display:inline-block;margin:4px;line-height:40px;text-align:center;font-size:11px;">4px</div>
+            <div style="width:70px;height:40px;background:#ddd;border:1px solid #999;border-radius:12px;display:inline-block;margin:4px;line-height:40px;text-align:center;font-size:11px;">12px</div>
+            <div style="width:70px;height:40px;background:#ddd;border:1px solid #999;border-radius:999px;display:inline-block;margin:4px;line-height:40px;text-align:center;font-size:11px;">pill</div>
+            <div style="width:40px;height:40px;background:#ddd;border:1px solid #999;border-radius:50%;display:inline-block;margin:4px;line-height:40px;text-align:center;font-size:11px;">50%</div>
+        </div>
+    </section>
+
+    <section data-test="css-border-widths">
+        <h2 id="borders">Border Width & Style</h2>
+        <div>
+            <div style="width:70px;height:40px;border:1px solid #333;display:inline-block;margin:4px;line-height:40px;text-align:center;font-size:11px;">1px</div>
+            <div style="width:70px;height:40px;border:2px solid #06c;display:inline-block;margin:4px;line-height:40px;text-align:center;font-size:11px;">2px</div>
+            <div style="width:70px;height:40px;border:4px solid #c00;display:inline-block;margin:4px;line-height:40px;text-align:center;font-size:11px;">4px</div>
+            <div style="width:70px;height:40px;border:2px dashed #666;display:inline-block;margin:4px;line-height:40px;text-align:center;font-size:11px;">dash</div>
+            <div style="width:70px;height:40px;border:2px dotted #666;display:inline-block;margin:4px;line-height:40px;text-align:center;font-size:11px;">dot</div>
+            <div style="width:70px;height:40px;border:4px double #666;display:inline-block;margin:4px;line-height:40px;text-align:center;font-size:11px;">dbl</div>
+        </div>
+    </section>
+
+    <section data-test="css-padding">
+        <h2 id="padding">Padding</h2>
+        <div>
+            <div style="background:#eef;border:1px solid #99c;padding:4px;font-size:11px;display:inline-block;margin:4px;">p4</div>
+            <div style="background:#eef;border:1px solid #99c;padding:12px;font-size:11px;display:inline-block;margin:4px;">p12</div>
+            <div style="background:#eef;border:1px solid #99c;padding:4px 16px;font-size:11px;display:inline-block;margin:4px;">p4/16</div>
+        </div>
+    </section>
+
+    <section data-test="css-margin">
+        <h2 id="margin">Margin</h2>
+        <div style="background:#fafafa;border:1px solid #ccc;padding:4px;">
+            <div style="background:#ddd;margin:4px;padding:2px;font-size:11px;display:inline-block;">m4</div>
+            <div style="background:#ddd;margin:12px;padding:2px;font-size:11px;display:inline-block;">m12</div>
+            <div style="background:#ddd;margin:4px 16px;padding:2px;font-size:11px;display:inline-block;">m4/16</div>
+        </div>
+    </section>
+
+    <section data-test="css-overflow">
+        <h2 id="overflow">Overflow & Clipping</h2>
+        <div class="scroll-box" aria-label="Scrollable box">Scrollable content inside a fixed height container causing overflow to test scrollbars. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do.</div>
+        <div>
+            <div class="clip-box"><span>clipped</span></div>
+            <div class="visible-box"><span>visible</span></div>
+        </div>
+        <p style="font-size:11px;color:#555;">Compare clipping vs visible overflow (absolute positioned child). If both look identical, overflow clipping may be unimplemented.</p>
+    </section>
+    </main>
+</body>
+</html>

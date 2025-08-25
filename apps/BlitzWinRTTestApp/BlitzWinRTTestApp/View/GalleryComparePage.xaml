@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="BlitzWinRTTestApp.View.GalleryComparePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:blitz="using:Blitz"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <!--  Side-by-side comparison of BlitzView vs WebView2 rendering the same HTML gallery  -->
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!--  Blitz Column  -->
+        <Grid Grid.Column="0" Margin="8,8,4,8">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <TextBlock
+                Margin="0,0,0,6"
+                FontSize="14"
+                FontWeight="SemiBold"
+                Text="BlitzView" />
+            <Border
+                Grid.Row="1"
+                Background="#FFF"
+                BorderBrush="#33000000"
+                BorderThickness="1"
+                CornerRadius="4">
+                <blitz:BlitzView DebugOverlayEnabled="{x:Bind Settings.DebugOverlayEnabled, Mode=OneWay}" HTML="{x:Bind Html}" />
+            </Border>
+        </Grid>
+
+        <!--  WebView2 Column  -->
+        <Grid Grid.Column="1" Margin="4,8,8,8">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <TextBlock
+                Margin="0,0,0,6"
+                FontSize="14"
+                FontWeight="SemiBold"
+                Text="WebView2" />
+            <Border
+                Grid.Row="1"
+                Background="#FFF"
+                BorderBrush="#33000000"
+                BorderThickness="1"
+                CornerRadius="4">
+                <WebView2 x:Name="WebV" Loaded="WebV_Loaded" />
+            </Border>
+        </Grid>
+    </Grid>
+</Page>
