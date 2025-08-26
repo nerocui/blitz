@@ -17,7 +17,7 @@ use windows::Win32::Graphics::Direct3D11::{
 use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory2, IDXGIFactory2, IDXGISwapChain1, DXGI_CREATE_FACTORY_FLAGS,
     DXGI_SWAP_CHAIN_DESC1, DXGI_USAGE_RENDER_TARGET_OUTPUT, DXGI_PRESENT,
-    DXGI_SCALING_STRETCH, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
+    DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT, DXGI_SAMPLE_DESC,
@@ -88,11 +88,23 @@ pub struct BlitzHost {
     // Shared callback used by provider to deliver parsed resources back to DOM once handler finishes.
     resource_callback: Option<blitz_traits::net::SharedCallback<Resource>>,
     provider: Option<std::sync::Arc<blitz_net_winui::WinUiNetProvider<Resource>>>,
+    // Device (rasterization) scale captured from XamlRoot; we force viewport scale=1.0 (CSS px == logical DIP)
+    // but allocate swapchain/backbuffer at logical * device_scale for crisp text.
+    device_scale: f32,
 }
 
 impl BlitzHost {
     pub fn new_for_swapchain(_panel: crate::SwapChainPanelHandle, width: u32, height: u32, scale: f32) -> Result<Self, String> {
         // No HWND usage in WinUI path. We strictly render into the provided SwapChainPanel swapchain.
+        // Option A DPI policy (WinUI): Treat incoming width/height as logical DIPs and ignore external scale.
+        // Rationale: WinUI XAML talks in DIPs already; we keep CSS px == DIP for clarity.
+        // Multi-monitor: future improvement will listen for XamlRoot RasterizationScale changes and if they differ
+        // significantly from 1.0 we could either (a) upscale swapchain or (b) introduce a zoom factor distinct from CSS px.
+        // For now we force scale = 1.0 to avoid double device-pixel-ratio application (causing oversized content).
+        let device_scale = if scale <= 0.0 { 1.0 } else { scale };
+        if (device_scale - 1.0).abs() > 0.01 {
+            debug_log(&format!("new_for_swapchain: storing device_scale={} while forcing viewport scale=1.0", device_scale));
+        }
 
         // Minimal HTML doc placeholder; host can replace by calling load_html.
         // Start with an empty document so we don't flash placeholder content before real HTML loads.
@@ -105,11 +117,12 @@ impl BlitzHost {
         );
 
         // Initialize viewport so first swapchain uses real size instead of 1x1.
-        let viewport = Viewport::new(width.max(1), height.max(1), scale, ColorScheme::Light);
+    // Treat provided width/height as logical CSS px (WinUI gives DIPs). Viewport scale forced 1.0.
+    let viewport = Viewport::new(width.max(1), height.max(1), 1.0, ColorScheme::Light);
         doc.set_viewport(viewport);
 
         let renderer = D2DWindowRenderer::new();
-        Ok(Self { 
+    Ok(Self { 
             renderer, 
             doc: Box::new(doc), 
             // cpu_staging: Vec::new(), // TODO: Enable when implementing CPU-GPU texture bridge
@@ -128,6 +141,7 @@ impl BlitzHost {
             network_fetcher: None,
             resource_callback: None,
             provider: None,
+            device_scale: device_scale,
         })
     }
     
@@ -295,10 +309,12 @@ impl BlitzHost {
         }
         
         // Use current viewport size
-        let (width, height) = self.doc.viewport().window_size;
-        let width = width.max(1);
-        let height = height.max(1);
-        debug_log(&format!("create_and_attach_swapchain: using size {}x{}", width, height));
+    let (logical_w, logical_h) = self.doc.viewport().window_size;
+    let logical_w = logical_w.max(1);
+    let logical_h = logical_h.max(1);
+    let phys_w = ((logical_w as f32) * self.device_scale).round().max(1.0) as u32;
+    let phys_h = ((logical_h as f32) * self.device_scale).round().max(1.0) as u32;
+    debug_log(&format!("create_and_attach_swapchain: logical {}x{} device_scale {:.3} -> physical {}x{}", logical_w, logical_h, self.device_scale, phys_w, phys_h));
         unsafe {
             let acquire = crate::global_gfx::get_or_create_d3d_device();
             if acquire.is_none() { debug_log("create_and_attach_swapchain: failed to acquire global device"); return; }
@@ -328,16 +344,17 @@ impl BlitzHost {
             // Create a more robust swap chain for SwapChainPanel
             // Primary descriptor (premultiplied alpha, flip-sequential)
             let mut desc = DXGI_SWAP_CHAIN_DESC1 {
-                Width: width,
-                Height: height,
+                Width: phys_w,
+                Height: phys_h,
                 Format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM,
                 Stereo: false.into(),
                 SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
                 BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
                 BufferCount: 2,
-                Scaling: DXGI_SCALING_STRETCH,
+                // With physical pixel sized buffers prefer NO scaling so each backbuffer pixel maps 1:1.
+                    Scaling: windows::Win32::Graphics::Dxgi::DXGI_SCALING_STRETCH,
                 SwapEffect: DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
-                // Use IGNORE initially to guarantee opaque composition (avoid transparent first frame issues in Release)
+                // Use IGNORE initially (opaque) to enable ClearType; fallbacks below may adjust.
                 AlphaMode: windows::Win32::Graphics::Dxgi::Common::DXGI_ALPHA_MODE_IGNORE,
                 Flags: 0,
             };
@@ -384,6 +401,7 @@ impl BlitzHost {
             let sc: IDXGISwapChain1 = match sc_attempt {
                 Some(s) => {
                     debug_log("create_and_attach_swapchain: Created swap chain successfully (after possible fallbacks)");
+                    if let Ok(desc1) = s.GetDesc1() { debug_log(&format!("create_and_attach_swapchain: actual desc {}x{} fmt={:?} alpha={:?} buffers={} scaling={:?}", desc1.Width, desc1.Height, desc1.Format, desc1.AlphaMode, desc1.BufferCount, desc1.Scaling)); }
                     s
                 },
                 None => {
@@ -411,7 +429,7 @@ impl BlitzHost {
             self.d3d_device = Some(device);
             self.d3d_context = Some(context);
             self.pending_swapchain = Some(sc);
-            self.renderer.set_size(width, height);
+            self.renderer.set_size(phys_w, phys_h);
             // Mark attach as pending; actual AttachSwapChain will execute later (e.g. at next render/poll)
             self.attach_queue_start = Some(std::time::Instant::now());
             self.attach_pending = true;
@@ -441,8 +459,10 @@ impl BlitzHost {
             Err(e) => { debug_log(&format!("maybe_execute_queued_attach: AttachSwapChain failed queue_ms={:.2} exec_ms={:.2} err={:?}", queue_ms, exec_ms, e)); }
         }
         // Finalize swapchain into renderer
-        let (w,h) = self.doc.viewport().window_size;
-        self.renderer.set_swapchain(sc.clone(), w.max(1), h.max(1));
+    let (logical_w, logical_h) = self.doc.viewport().window_size;
+    let phys_w = ((logical_w as f32) * self.device_scale).round().max(1.0) as u32;
+    let phys_h = ((logical_h as f32) * self.device_scale).round().max(1.0) as u32;
+    self.renderer.set_swapchain(sc.clone(), phys_w, phys_h);
         self.swapchain = Some(sc);
         // Accumulate host init total after full attach completes, excluding queue wait (we only want non-overlapped exec + prior setup)
         if let Some(start) = self.host_init_start.take() {
@@ -472,7 +492,7 @@ impl BlitzHost {
     // Alternative interop: host passes an already-created IDXGISwapChain1* pointer.
     // Safety: swapchain_ptr must be a valid, AddRef'd IDXGISwapChain1 pointer. We take ownership of a reference.
     pub fn set_swapchain(&mut self, swapchain_ptr: *mut core::ffi::c_void, width: u32, height: u32, scale: f32) {
-        let _ = scale;
+        if scale > 0.0 { self.device_scale = scale; }
         if swapchain_ptr.is_null() { return; }
         unsafe {
             // Rebuild COM interface from raw pointer without transferring ownership (we take one ref).
@@ -480,34 +500,35 @@ impl BlitzHost {
             // Store swapchain and reset D3D device/context for render path that just clears/presents
             self.swapchain = Some(sc);
             // Update viewport and renderer size
-            let viewport = Viewport::new(width, height, scale, ColorScheme::Light);
+            let viewport = Viewport::new(width, height, 1.0, ColorScheme::Light);
             self.doc.set_viewport(viewport);
-            self.renderer.set_size(width, height);
+            let phys_w = ((width as f32) * self.device_scale).round().max(1.0) as u32;
+            let phys_h = ((height as f32) * self.device_scale).round().max(1.0) as u32;
+            self.renderer.set_size(phys_w, phys_h);
             // Try an immediate resize to desired size in case buffers differ
             if let Some(sc) = &self.swapchain {
-                let _ = sc.ResizeBuffers(0, width, height, DXGI_FORMAT(28), windows::Win32::Graphics::Dxgi::DXGI_SWAP_CHAIN_FLAG(0));
+                let _ = sc.ResizeBuffers(0, phys_w, phys_h, DXGI_FORMAT(28), windows::Win32::Graphics::Dxgi::DXGI_SWAP_CHAIN_FLAG(0));
             }
         }
     }
 
     pub fn resize(&mut self, width: u32, height: u32, scale: f32) {
-        let viewport = Viewport::new(width, height, scale, ColorScheme::Light);
+        if scale > 0.0 { self.device_scale = scale; }
+        let viewport = Viewport::new(width, height, 1.0, ColorScheme::Light);
         self.doc.set_viewport(viewport);
-        // Keep renderer sized to viewport; no window-handle surface used here
-        self.renderer.set_size(width.max(1), height.max(1));
-        // Resize DXGI swapchain if present
+        let phys_w = ((width as f32) * self.device_scale).round().max(1.0) as u32;
+        let phys_h = ((height as f32) * self.device_scale).round().max(1.0) as u32;
+        self.renderer.set_size(phys_w.max(1), phys_h.max(1));
         if let Some(sc) = &self.swapchain {
-            // Release all references (target + cached bitmap) so ResizeBuffers can succeed.
             self.renderer.release_backbuffer_resources();
-            let mut hr = unsafe { sc.ResizeBuffers(0, width, height, DXGI_FORMAT(28), windows::Win32::Graphics::Dxgi::DXGI_SWAP_CHAIN_FLAG(0)) };
+            let mut hr = unsafe { sc.ResizeBuffers(0, phys_w, phys_h, DXGI_FORMAT(28), windows::Win32::Graphics::Dxgi::DXGI_SWAP_CHAIN_FLAG(0)) };
             if !hr.is_ok() {
-                debug_log(&format!("resize: first ResizeBuffers attempt failed hr={:?} ({}x{}); retrying after forced release", hr, width, height));
-                // Extra safety: ensure target cleared again before retry
+                debug_log(&format!("resize: first ResizeBuffers attempt failed hr={:?} (phys {}x{} from logical {}x{} scale {:.3}); retrying", hr, phys_w, phys_h, width, height, self.device_scale));
                 self.renderer.release_backbuffer_resources();
-                hr = unsafe { sc.ResizeBuffers(0, width, height, DXGI_FORMAT(28), windows::Win32::Graphics::Dxgi::DXGI_SWAP_CHAIN_FLAG(0)) };
+                hr = unsafe { sc.ResizeBuffers(0, phys_w, phys_h, DXGI_FORMAT(28), windows::Win32::Graphics::Dxgi::DXGI_SWAP_CHAIN_FLAG(0)) };
             }
-            if hr.is_ok() { debug_log(&format!("resize: swapchain ResizeBuffers ok ({}x{})", width, height)); }
-            else { debug_log(&format!("resize: ResizeBuffers failed hr={:?} ({}x{})", hr, width, height)); }
+            if hr.is_ok() { debug_log(&format!("resize: swapchain ResizeBuffers ok (phys {}x{} from logical {}x{} scale {:.3})", phys_w, phys_h, width, height, self.device_scale)); }
+            else { debug_log(&format!("resize: ResizeBuffers failed hr={:?} (phys {}x{} from logical {}x{} scale {:.3})", hr, phys_w, phys_h, width, height, self.device_scale)); }
         }
         // Mark for redraw (layout may depend on viewport size)
         self.needs_render = true;
@@ -521,8 +542,10 @@ impl BlitzHost {
         if !self.content_loaded && !self.needs_render { return; }
         if self.content_loaded && !self.needs_render { return; }
         debug_log(&format!("render_once: begin (dirty={}, content_loaded={})", self.needs_render, self.content_loaded));
-        let (width, height) = self.doc.viewport().window_size;
-        let scale = self.doc.viewport().scale_f64();
+    let (logical_w, logical_h) = self.doc.viewport().window_size;
+    let scale = self.doc.viewport().scale_f64(); // always 1.0 currently
+    let phys_w = ((logical_w as f32) * self.device_scale).round().max(1.0) as u32;
+    let phys_h = ((logical_h as f32) * self.device_scale).round().max(1.0) as u32;
         if self.content_loaded { self.doc.resolve(); }
 
         if self.swapchain.is_none() && self.attacher.is_some() {
@@ -549,7 +572,7 @@ impl BlitzHost {
                             }
                         }
                         if self.d3d_context.is_none() { debug_log("render_once: No D3D context available"); return; }
-                        let (w,h) = (width.max(1), height.max(1));
+                        let (w,h) = (phys_w.max(1), phys_h.max(1));
                         if self.content_loaded {
                             want_disable_test_pattern = true;
                             self.renderer.render(|scene| paint_scene(scene, &self.doc, scale, w, h));
@@ -575,7 +598,13 @@ impl BlitzHost {
 
         // Fallback path (should not normally trigger in WinUI panel scenario)
         if self.content_loaded {
-            self.renderer.render(|scene| paint_scene(scene, &self.doc, scale, width, height));
+            let (phys_w, phys_h) = {
+                let (lw, lh) = self.doc.viewport().window_size;
+                let pw = ((lw as f32) * self.device_scale).round().max(1.0) as u32;
+                let ph = ((lh as f32) * self.device_scale).round().max(1.0) as u32;
+                (pw, ph)
+            };
+            self.renderer.render(|scene| paint_scene(scene, &self.doc, scale, phys_w, phys_h));
             debug_log(&format!("render_once: D2D command_count={} (fallback path)", self.renderer.last_command_count()));
             self.needs_render = false;
         } else if !self.placeholder_drawn {

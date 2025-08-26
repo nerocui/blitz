@@ -45,20 +45,18 @@ namespace winrt::Blitz::implementation
             return;
         }
 
-        // Determine initial size/scale
-        float scale = 1.0f;
-        if (auto xr = this->XamlRoot())
-        {
-            scale = static_cast<float>(xr.RasterizationScale());
-        }
-        uint32_t width = std::max<uint32_t>(1, static_cast<uint32_t>(m_panel.ActualWidth()));
-        uint32_t height = std::max<uint32_t>(1, static_cast<uint32_t>(m_panel.ActualHeight()));
+    // Determine initial size/scale (logical DIPs + device scale). We pass logical size; Rust allocates physical buffer.
+    float rasterScale = 1.0f;
+    if (auto xr = this->XamlRoot()) { rasterScale = static_cast<float>(xr.RasterizationScale()); }
+    uint32_t width = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(m_panel.ActualWidth())));
+    uint32_t height = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(m_panel.ActualHeight())));
 
         // Pick provided HTML (if any) or fallback default snippet
         hstring initialHtml = m_html.empty() ? hstring(L"<html><body style='background:#202020;color:#EEE;font-family:sans-serif'>Blitz host</body></html>") : m_html;
         try
         {
-            m_host = winrt::BlitzWinUI::Host(m_attacher, width, height, scale, initialHtml);
+            // Pass logical size + rasterScale; shell forces viewport scale=1.0 but uses device_scale for buffer allocation.
+            m_host = winrt::BlitzWinUI::Host(m_attacher, width, height, rasterScale, initialHtml);
             // Apply current overlay setting (default false unless changed before init)
             try { m_host.SetDebugOverlay(m_debugOverlayEnabled); } catch (...) {}
             // Create and inject network fetcher so that resource loads (images/stylesheets) can occur.
@@ -120,14 +118,10 @@ namespace winrt::Blitz::implementation
     {
         if (!m_host || !m_panel)
             return;
-        float scale = 1.0f;
-        if (auto xr = this->XamlRoot())
-        {
-            scale = static_cast<float>(xr.RasterizationScale());
-        }
-        uint32_t width = std::max<uint32_t>(1, static_cast<uint32_t>(m_panel.ActualWidth()));
-        uint32_t height = std::max<uint32_t>(1, static_cast<uint32_t>(m_panel.ActualHeight()));
-        try { m_host.Resize(width, height, scale); }
+    float rasterScale = 1.0f; if (auto xr = this->XamlRoot()) { rasterScale = static_cast<float>(xr.RasterizationScale()); }
+    uint32_t width = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(m_panel.ActualWidth())));
+    uint32_t height = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(m_panel.ActualHeight())));
+    try { m_host.Resize(width, height, rasterScale); }
         catch (...) { }
     }
 
@@ -219,6 +213,7 @@ namespace winrt::Blitz::implementation
             m_pointerPressedToken = m_panel.PointerPressed({ this, &BlitzView::PanelPointerPressed });
             m_pointerReleasedToken = m_panel.PointerReleased({ this, &BlitzView::PanelPointerReleased });
             m_pointerWheelChangedToken = m_panel.PointerWheelChanged({ this, &BlitzView::PanelPointerWheelChanged });
+            if (auto xr = this->XamlRoot()) { m_xamlRootChangedToken = xr.Changed({ this, &BlitzView::OnXamlRootChanged }); }
         }
     }
 
@@ -238,6 +233,16 @@ namespace winrt::Blitz::implementation
     void BlitzView::OnPointerWheelChanged(PointerRoutedEventArgs const& e)
     {
         PanelPointerWheelChanged(nullptr, e);
+    }
+
+    void BlitzView::OnXamlRootChanged(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::XamlRootChangedEventArgs const&)
+    {
+        // DPI (RasterizationScale) may have changed even if logical size did not; trigger logical resize with same size but new scale.
+        if (!m_host || !m_panel) return;
+        float rasterScale = 1.0f; if (auto xr = this->XamlRoot()) { rasterScale = static_cast<float>(xr.RasterizationScale()); }
+        uint32_t width = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(m_panel.ActualWidth())));
+        uint32_t height = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(m_panel.ActualHeight())));
+        try { m_host.Resize(width, height, rasterScale); } catch (...) {}
     }
 
     // HTML property implementation

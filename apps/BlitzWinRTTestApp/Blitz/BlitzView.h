@@ -43,6 +43,7 @@ namespace winrt::Blitz::implementation
         void PanelPointerReleased(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&);
         void PanelPointerWheelChanged(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&);
         void OnRendering(winrt::Windows::Foundation::IInspectable const&, winrt::Windows::Foundation::IInspectable const&);
+    void OnXamlRootChanged(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::XamlRootChangedEventArgs const&);
 
         // Helpers
         void ForwardResize();
@@ -65,6 +66,7 @@ namespace winrt::Blitz::implementation
         winrt::event_token m_pointerReleasedToken{};
         winrt::event_token m_pointerWheelChangedToken{};
         winrt::event_token m_renderingToken{};
+    winrt::event_token m_xamlRootChangedToken{};
     };
 }
 

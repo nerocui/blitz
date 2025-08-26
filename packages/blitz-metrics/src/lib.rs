@@ -47,7 +47,6 @@ impl FrameTimings {
 
 static PHASE_TIMINGS: once_cell::sync::Lazy<Mutex<FrameTimings>> = once_cell::sync::Lazy::new(|| Mutex::new(FrameTimings::default()));
 static FROZEN: AtomicBool = AtomicBool::new(false);
-static INIT_ACTIVE: AtomicBool = AtomicBool::new(true); // temporarily always active until first-frame freeze
 
 pub struct PhaseGuard { name: &'static str, start: Option<Instant> }
 impl PhaseGuard {

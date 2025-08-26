@@ -3,6 +3,9 @@ WINUI SHELL CORE RULES
  - Rendering lives inside a Microsoft.UI.Xaml.Controls.SwapChainPanel. Do NOT require / assume a top-level HWND.
  - Accept only the panel's WinRT object and perform DXGI / SwapChainPanel interop internally.
  - Current backend is Direct2D (anyrender_d2d). Do not reintroduce wgpu/Vello here without an approved design change.
+ - Host integration in the sample app is C++/WinRT (custom BlitzView control in Blitz.vcxproj), not C#. Keep guidance / examples aligned with the C++ control (`BlitzView.cpp`).
+ - `BlitzView` must pass PHYSICAL PIXEL dimensions (rounded `ActualWidth * RasterizationScale`) while keeping the viewport scale argument fixed at 1.0; the Rust shell currently forces scale=1.0 (Option A) and interprets width/height as CSS px.
+ - On DPI change (XamlRoot.Changed) without a layout size change we still need to recompute physical size and issue a resize; add this before shipping.
 
 GENERATED CODE
  - src/bindings.rs is generated from idl/Blitz.WinUI.idl (midlrt + windows-bindgen). Never hand-edit.
@@ -16,6 +19,9 @@ DIRECT2D BACKEND GUIDELINES
  - Keep backend-specific types encapsulated; expose only anyrender trait implementations outward.
  - Implement new paint features via command recording; avoid injecting Direct2D handles into higher layers.
  - Cache expensive resources (brushes, geometries, bitmaps, text formats) and document eviction strategy when added.
+ - Prefer opaque swapchain buffers (DXGI_ALPHA_MODE_IGNORE) to enable ClearType. Only fall back to premultiplied alpha when transparency is strictly required.
+ - After binding the target each frame set `SetTextAntialiasMode(CLEARTYPE)` and `SetAntialiasMode(PER_PRIMITIVE)`; add a concise debug log if unavailable.
+ - Treat viewport width/height as logical CSS px; renderer is responsible for mapping to physical device pixels via swapchain allocation.
 
 AVOID
  - Introducing HWND-based surfaces or raw-window-handle dependencies.

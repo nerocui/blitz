@@ -22,12 +22,11 @@ pub(crate) struct DeviceAcquireResult {
     pub context: ID3D11DeviceContext,
     pub feature_level: D3D_FEATURE_LEVEL,
     pub created: bool,
-    pub create_ms: f32,
 }
 
 pub(crate) fn get_or_create_d3d_device() -> Option<DeviceAcquireResult> {
     if let Some(glob) = GLOBAL_DEVICE.get() {
-        return Some(DeviceAcquireResult { device: glob.device.clone(), context: glob.context.clone(), feature_level: glob.feature_level, created: false, create_ms: 0.0 });
+        return Some(DeviceAcquireResult { device: glob.device.clone(), context: glob.context.clone(), feature_level: glob.feature_level, created: false });
     }
     let start = std::time::Instant::now();
     unsafe {
@@ -70,6 +69,6 @@ pub(crate) fn get_or_create_d3d_device() -> Option<DeviceAcquireResult> {
         let _thread_id = std::thread::current().id();
         let _ = GLOBAL_DEVICE.set(GlobalDevice { device: device.clone(), context: context.clone(), feature_level: chosen, _thread_id });
         debug_log(&format!("global_gfx: created shared D3D device (feature {:?}) in {:.2} ms", chosen, create_ms));
-        Some(DeviceAcquireResult { device, context, feature_level: chosen, created: true, create_ms })
+    Some(DeviceAcquireResult { device, context, feature_level: chosen, created: true })
     }
 }

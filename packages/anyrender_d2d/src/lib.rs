@@ -787,11 +787,11 @@ impl D2DWindowRenderer {
                     desc.Format, desc.Width, desc.Height
                 ));
             }
-            // Preferred properties using current context DPI
+        // Preferred properties using current context DPI. Use ALPHA_MODE_IGNORE (opaque) to allow ClearType.
             let props_ctx = D2D1_BITMAP_PROPERTIES1 {
                 pixelFormat: D2D1_PIXEL_FORMAT {
                     format: DXGI_FORMAT_B8G8R8A8_UNORM,
-                    alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+            alphaMode: D2D1_ALPHA_MODE_IGNORE,
                 },
                 dpiX: dpi_x,
                 dpiY: dpi_y,
@@ -812,7 +812,7 @@ impl D2DWindowRenderer {
                 let props_96 = D2D1_BITMAP_PROPERTIES1 {
                     pixelFormat: D2D1_PIXEL_FORMAT {
                         format: DXGI_FORMAT_B8G8R8A8_UNORM,
-                        alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+                        alphaMode: D2D1_ALPHA_MODE_IGNORE,
                     },
                     dpiX: 96.0,
                     dpiY: 96.0,
@@ -851,6 +851,13 @@ impl D2DWindowRenderer {
             ctx.BeginDraw();
             // SetTarget exists on ID2D1DeviceContext
             let _ = ctx.SetTarget(target);
+            // Configure antialiasing + ClearType after binding target (Step C)
+            let _ = ctx.SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+            let _ = ctx.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
+            let actual_mode = ctx.GetTextAntialiasMode();
+            if actual_mode != D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE {
+                debug_log_d2d(&format!("playback: requested CLEARTYPE but got {:?}", actual_mode));
+            }
             // Clear: previously we filled with transparent which caused full window transparency when scene content lacked opaque background.
             // Use an opaque fallback (white) so something is always visible; later we can sample actual page background color.
             let size = target.GetSize();
@@ -949,6 +956,26 @@ impl D2DWindowRenderer {
             let disable_text = false; // glyph runs stable
             let recreate_effect_per_shadow = false; // effect reused
             let disable_inset_shadows = false; // inset stable
+            // Experimental flag: use GDI Classic measuring for small font sizes for potentially crisper small text.
+            let use_gdi_for_small = std::env::var("BLITZ_EXPERIMENT_GDI_SMALL_TEXT").map(|v| v=="1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+            // Baseline snapping strategy: integer (default historic), half, or auto (choose .5 if frac in [0.25,0.75])
+            // Env: BLITZ_TEXT_BASELINE_SNAP = integer | half | auto
+            let baseline_mode = std::env::var("BLITZ_TEXT_BASELINE_SNAP").unwrap_or_else(|_| "auto".to_string());
+            let snap_baseline = |y: f32| -> f32 {
+                match baseline_mode.as_str() {
+                    // Always round to nearest whole device pixel
+                    "integer" => y.round(),
+                    // Always round to nearest half device pixel (n + 0.0 or 0.5)
+                    "half" => (y * 2.0).round() / 2.0,
+                    // Auto: if y frac is near mid range pick 0.5 to balance ClearType vertical filtering; else snap to nearest int.
+                    _ => {
+                        let frac = y.fract();
+                        if (frac - 0.5).abs() < 0.25 { // between 0.25 and 0.75 -> prefer half
+                            (y.floor() as f32) + 0.5
+                        } else { y.round() }
+                    }
+                }
+            };
             for (cmd_index, cmd) in commands.into_iter().enumerate() {
                 // max command limit feature removed (kept simpler playback path)
                 vlog!(
@@ -975,7 +1002,7 @@ impl D2DWindowRenderer {
                             // Build geometry to honor any complex shape / potential future rounded corners.
                             if let Some(geom) = self.build_path_geometry(&path) {
                                 // Bounds give target box (CSS layout size already applied in path coordinates).
-                                let bounds = unsafe { geom.GetBounds(None).unwrap_or(D2D_RECT_F{ left:0.0, top:0.0, right:0.0, bottom:0.0 }) };
+                                let bounds = geom.GetBounds(None).unwrap_or(D2D_RECT_F{ left:0.0, top:0.0, right:0.0, bottom:0.0 });
                                 let w = bounds.right - bounds.left;
                                 let h = bounds.bottom - bounds.top;
                                 if w > 0.5 && h > 0.5 {
@@ -983,9 +1010,7 @@ impl D2DWindowRenderer {
                                     // Optional clip to geometry (handles non-rect paths); keep simple axis clip when rectangular.
                                     // Detect rectangular by comparing path bbox to layout; if not exact we can push clip.
                                     let dest = bounds; // scale bitmap to fit dest
-                                    unsafe {
-                                        ctx.DrawBitmap(&bitmap, Some(&dest), img.alpha, D2D1_INTERPOLATION_MODE_LINEAR, None, None);
-                                    }
+                                    ctx.DrawBitmap(&bitmap, Some(&dest), img.alpha, D2D1_INTERPOLATION_MODE_LINEAR, None, None);
                                 }
                             }
                         } else if let Some(geom) = self.build_path_geometry(&path) {
@@ -998,13 +1023,80 @@ impl D2DWindowRenderer {
                                     vlog!("FillPath idx={} cmd={} (non-solid)", fill_path_count, cmd_index);
                                 }
                             }
-                            let _ = ctx.FillGeometry(&geom, &brush_obj, None);
+                            // Attempt rectangle snapping: if geometry bounds form an axis-aligned rect very close to integer edges, snap to avoid half-pixel fill blur.
+                            let bounds = geom.GetBounds(None).unwrap_or(D2D_RECT_F{ left:0.0, top:0.0, right:0.0, bottom:0.0 });
+                            let mut snapped = false;
+                            let l_round = bounds.left.round();
+                            let t_round = bounds.top.round();
+                            let r_round = bounds.right.round();
+                            let b_round = bounds.bottom.round();
+                            let eps = 0.01; // tolerance in px
+                            if (bounds.left - l_round).abs() < eps && (bounds.top - t_round).abs() < eps && (bounds.right - r_round).abs() < eps && (bounds.bottom - b_round).abs() < eps {
+                                // Only snap if width/height are >= 1 to avoid collapsing hairlines unexpectedly
+                                if (r_round - l_round) >= 1.0 && (b_round - t_round) >= 1.0 {
+                                    let rect = D2D_RECT_F { left: l_round, top: t_round, right: r_round, bottom: b_round };
+                                    let _ = ctx.FillRectangle(&rect, &brush_obj);
+                                    snapped = true;
+                                }
+                            }
+                            if !snapped { let _ = ctx.FillGeometry(&geom, &brush_obj, None); }
                         }
                     }
                     Command::StrokePath { path, brush, width } => {
                         stroke_path_count += 1;
                         if let Some(geom) = self.build_path_geometry(&path) {
                             let brush = self.get_or_create_brush(&brush);
+                            // Stroke rectangle snapping heuristic: shift geometry by +/-0.5 when beneficial for crisp pixel alignment.
+                            let mut xs: Vec<f64> = Vec::new();
+                            let mut ys: Vec<f64> = Vec::new();
+                            for el in &path { if let PathEl::MoveTo(p) | PathEl::LineTo(p) = el { xs.push(p.x); ys.push(p.y); } }
+                            let mut uniq_x: Vec<f64> = Vec::new();
+                            let mut uniq_y: Vec<f64> = Vec::new();
+                            let tol = 0.01;
+                            for x in xs { if !uniq_x.iter().any(|u| (u - x).abs() < tol) { uniq_x.push(x); } }
+                            for y in ys { if !uniq_y.iter().any(|u| (u - y).abs() < tol) { uniq_y.push(y); } }
+                            let mut dx_shift = 0.0f32; let mut dy_shift = 0.0f32;
+                            if uniq_x.len() == 2 && uniq_y.len() == 2 && width <= 4.0 {
+                                let near_int = (width.round() - width).abs() < 0.01;
+                                if near_int {
+                                    let w_int = width.round() as i32;
+                                    let norm_frac = |v: f64| { let f = v.fract(); if (f - 1.0).abs() < 1e-6 { 0.0 } else { f } };
+                                    let fx = norm_frac(uniq_x[0]);
+                                    let fy = norm_frac(uniq_y[0]);
+                                    if w_int % 2 == 1 { // odd: center at .5 if currently near int
+                                        if fx < 0.25 || fx > 0.75 { dx_shift = 0.5; }
+                                        if fy < 0.25 || fy > 0.75 { dy_shift = 0.5; }
+                                    } else { // even: center at integer if currently near .5
+                                        if (fx - 0.5).abs() < 0.25 { dx_shift = -0.5; }
+                                        if (fy - 0.5).abs() < 0.25 { dy_shift = -0.5; }
+                                    }
+                                }
+                            }
+                            if dx_shift != 0.0 || dy_shift != 0.0 {
+                                // Rebuild shifted geometry (avoid requiring matrix type definition differences across win32 metadata versions)
+                                let mut shifted: Vec<PathEl> = Vec::with_capacity(path.len());
+                                for el in &path {
+                                    match el {
+                                        PathEl::MoveTo(p) => shifted.push(PathEl::MoveTo(kurbo::Point { x: p.x + dx_shift as f64, y: p.y + dy_shift as f64 })),
+                                        PathEl::LineTo(p) => shifted.push(PathEl::LineTo(kurbo::Point { x: p.x + dx_shift as f64, y: p.y + dy_shift as f64 })),
+                                        PathEl::QuadTo(p1, p2) => shifted.push(PathEl::QuadTo(
+                                            kurbo::Point { x: p1.x + dx_shift as f64, y: p1.y + dy_shift as f64 },
+                                            kurbo::Point { x: p2.x + dx_shift as f64, y: p2.y + dy_shift as f64 },
+                                        )),
+                                        PathEl::CurveTo(p1, p2, p3) => shifted.push(PathEl::CurveTo(
+                                            kurbo::Point { x: p1.x + dx_shift as f64, y: p1.y + dy_shift as f64 },
+                                            kurbo::Point { x: p2.x + dx_shift as f64, y: p2.y + dy_shift as f64 },
+                                            kurbo::Point { x: p3.x + dx_shift as f64, y: p3.y + dy_shift as f64 },
+                                        )),
+                                        PathEl::ClosePath => shifted.push(PathEl::ClosePath),
+                                    }
+                                }
+                                if let Some(shifted_geom) = self.build_path_geometry(&shifted) {
+                                    vlog!("StrokePath snap dx={:.2} dy={:.2} w={:.2}", dx_shift, dy_shift, width);
+                                    let _ = ctx.DrawGeometry(&shifted_geom, &brush, width as f32, None);
+                                    continue;
+                                }
+                            }
                             let _ = ctx.DrawGeometry(&geom, &brush, width as f32, None);
                         }
                     }
@@ -1110,62 +1202,28 @@ impl D2DWindowRenderer {
                                 };
                                 let brush = self.create_solid_brush(color);
                                 if let Some(stroke_width) = stroke_width_opt {
-                                    if let Some(geom) = self.build_glyph_outline_geometry(
-                                        &face,
-                                        size,
-                                        &glyph_indices,
-                                        &advances,
-                                    ) {
+                                    if let Some(geom) = self.build_glyph_outline_geometry(&face, size, &glyph_indices, &advances) {
                                         let _ = ctx.DrawGeometry(&geom, &brush, stroke_width, None);
-                                    } else {
-                                        // Fallback: fill if outline extraction fails
-                                        let run = DWRITE_GLYPH_RUN {
-                                            fontFace: std::mem::ManuallyDrop::new(Some(
-                                                face.clone(),
-                                            )),
-                                            fontEmSize: size,
-                                            glyphCount: glyph_indices.len() as u32,
-                                            glyphIndices: glyph_indices.as_ptr(),
-                                            glyphAdvances: advances.as_ptr(),
-                                            glyphOffsets: std::ptr::null(),
-                                            isSideways: false.into(),
-                                            bidiLevel: 0,
-                                        };
-                                        let origin_pt = D2D_POINT_2F {
-                                            x: origin.0,
-                                            y: origin.1,
-                                        };
-                                        let _ = ctx.DrawGlyphRun(
-                                            origin_pt,
-                                            &run,
-                                            None,
-                                            &brush,
-                                            DWRITE_MEASURING_MODE_NATURAL,
-                                        );
+                                        continue; // stroke done
                                     }
-                                } else {
-                                    let run = DWRITE_GLYPH_RUN {
-                                        fontFace: std::mem::ManuallyDrop::new(Some(face.clone())),
-                                        fontEmSize: size,
-                                        glyphCount: glyph_indices.len() as u32,
-                                        glyphIndices: glyph_indices.as_ptr(),
-                                        glyphAdvances: advances.as_ptr(),
-                                        glyphOffsets: std::ptr::null(),
-                                        isSideways: false.into(),
-                                        bidiLevel: 0,
-                                    };
-                                    let origin_pt = D2D_POINT_2F {
-                                        x: origin.0,
-                                        y: origin.1,
-                                    };
-                                    let _ = ctx.DrawGlyphRun(
-                                        origin_pt,
-                                        &run,
-                                        None,
-                                        &brush,
-                                        DWRITE_MEASURING_MODE_NATURAL,
-                                    );
+                                    // fall through: outline failed, use glyph run fill
                                 }
+                                let run = DWRITE_GLYPH_RUN {
+                                    fontFace: std::mem::ManuallyDrop::new(Some(face.clone())),
+                                    fontEmSize: size,
+                                    glyphCount: glyph_indices.len() as u32,
+                                    glyphIndices: glyph_indices.as_ptr(),
+                                    glyphAdvances: advances.as_ptr(),
+                                    glyphOffsets: std::ptr::null(),
+                                    isSideways: false.into(),
+                                    bidiLevel: 0,
+                                };
+                                let snapped_y = snap_baseline(origin.1);
+                                let origin_pt = D2D_POINT_2F { x: origin.0.round(), y: snapped_y };
+                                if (origin.1 - snapped_y).abs() > 0.001 { vlog!("baseline snap mode={} in={:.3} out={:.3}", baseline_mode, origin.1, snapped_y); }
+                                let measuring = if use_gdi_for_small && size <= 12.5 { DWRITE_MEASURING_MODE_GDI_CLASSIC } else { DWRITE_MEASURING_MODE_NATURAL };
+                                if use_gdi_for_small && size <= 12.5 { vlog!("GlyphRun small-font GDI measuring size={:.2}", size); }
+                                let _ = ctx.DrawGlyphRun(origin_pt, &run, None, &brush, measuring);
                             }
                         }
                     }
@@ -1185,7 +1243,7 @@ impl D2DWindowRenderer {
                 shadow_count
             );
             // If no commands, fallback bg already drawn earlier.
-            // Note: SetTransform removed - not available in this windows-rs version
+            // Transform: currently implicit identity (no cumulative transform stack applied here).
             // Draw overlay before EndDraw so it is visible
             if self.show_debug_overlay {
                 self.draw_debug_overlay(&ctx);
@@ -1341,17 +1399,16 @@ impl D2DWindowRenderer {
         } else {
             String::new()
         };
+        let buffer_w = self.width;
+        let buffer_h = self.height;
+    let text_aa_mode = unsafe { ctx.GetTextAntialiasMode() };
+    let diag_line = format!("buf={}x{} css={}x{} scale=1.0 textAA={:?}", buffer_w, buffer_h, self.width, self.height, text_aa_mode);
         let stats = format!(
-            "{}\n{}\n{}\n{}",
-            stats_line1, stats_line2, stats_line2b, stats_line3
+            "{}\n{}\n{}\n{}\n{}",
+            stats_line1, stats_line2, stats_line2b, stats_line3, diag_line
         );
         // Background rect enlarged for extra fields
-        let bg = D2D_RECT_F {
-            left: 6.0,
-            top: 6.0,
-            right: 6.0 + 980.0,
-            bottom: 6.0 + 110.0,
-        };
+    let bg = D2D_RECT_F { left: 6.0, top: 6.0, right: 6.0 + 980.0, bottom: 6.0 + 125.0 };
         let bg_brush = self.create_solid_brush(Color::new([0.0, 0.0, 0.0, 0.55]));
         unsafe {
             ctx.FillRectangle(&bg, &bg_brush);
